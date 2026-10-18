@@ -1,0 +1,81 @@
+# Cấu hình pipeline real v003. Đổi mục `cut` sau khi đã cắt clip sẽ bị chặn (luật cắt phải
+# thống nhất); thử luật mới bằng một workspace riêng: set VNAV_DATA=data_trial.
+
+plan:
+  batch_max_hours: 20          # mỗi batch raw tối đa 20 giờ video
+  batch_max_gb: 16             # và tối đa 16 GB (720p talking head ~0,35-0,5 GB/h)
+  fallback_gb_per_hour: 0.5    # khi YouTube không báo dung lượng
+  require_vietnamese: true     # loại nếu track tiếng ghi rõ ngôn ngữ khác tiếng Việt
+  single:                      # nguồn một người (speakers = 1)
+    target_minutes: 20         # thêm video (trải theo ngày đăng) đến khi tổng ≥ 20 phút
+    min_videos: 3              # ít nhất 3 buổi quay khác nhau (nếu kênh có đủ)
+    max_videos: 10             # nhiều nhất 10 video (video ngắn)
+    scan_max: 40               # hỏi tối đa 40 mục đầu của kênh / playlist
+    playlist_scan_max: 40
+    scan_accepted: 15          # dừng hỏi khi đã có 15 video đạt
+    prefer_max_s: 5400         # ưu tiên video ≤ 90 phút (đỡ tải raw)
+  multi:                       # nguồn nhiều người (speakers = n)
+    max_videos: 15             # 15 video mới nhất
+    scan_max: 60               # kênh: hỏi tối đa 60 mục (mới nhất trước) đến khi đủ 15
+    playlist_scan_max: 100     # playlist: hỏi tối đa 100 mục rồi lấy 15 video mới nhất
+
+cut:
+  face_model: checkpoints/media/yunet.onnx
+  vad_model: checkpoints/media/silero_vad.onnx
+  sface_model: checkpoints/media/sface.onnx
+  syncnet_model: checkpoints/media/syncnet_v2.model
+  min_seconds: 4.0
+  max_seconds: 7.0
+  overlap_seconds: 0.0         # nguồn nhiều người: các cửa sổ không chồng nhau
+  merge_silence_seconds: 0.6
+  sample_fps: 4.0              # quét mặt sơ bộ (nguồn nhiều người)
+  scan_max_side: 640
+  min_face_size: 48            # px ở khung cạnh dài 640 (≈ 96 px ở 720p, cỡ mặt gốc của Wav2Lip)
+  max_bad_frames: 3           # cửa sổ được hụt mặt tối đa 3 frame (nghiêng đầu, mờ chuyển động)
+  max_bad_run: 2              # nhưng không quá 2 frame liên tiếp; clip gắn cờ face_gap
+  min_face_ratio: 0.9
+  scene_correlation: 0.55
+  max_source_hours: 12
+  identity_consistency: 0.5    # nguồn nhiều người: 5 điểm phải cùng mặt (cos với trung bình)
+  single:
+    min_clips: 40              # chỉ tiêu ứng viên (tối đa cố lấy): ≤ 5 phút tiếng nói → 40 clip
+    max_clips: 60              # ≥ 20 phút tiếng nói → 60 clip (để chọn được 20 clip tốt)
+    low_speech_minutes: 5
+    full_speech_minutes: 20
+    attempts_factor: 2.5       # tối đa ~2,5 cửa sổ kiểm cho mỗi clip cần lấy
+  sync:                        # độ lệch tiếng-hình của cả video (SyncNet), xem features/syncnet.py
+    clips_per_video: 20        # đo tối đa 20 clip rải đều mỗi video
+    min_clips: 3               # ít hơn mà đỉnh rõ: vẫn sửa, gắn cờ sync_few để xem kỹ
+    min_conf: 3.0              # độ nhọn đỉnh của đường cong trung bình (batch 1: tin 5,2-5,9; hỏng 1,6-1,9)
+    min_agree: 0.8             # ≥ 80% clip cùng độ lệch (±1 frame); kém hơn → sync_unreliable
+  jumpcut:                     # xem data/jumpcut.py; đo lại bằng 03_cut.py --jumpcut-eval
+    context_s: 1.0
+    landmark_ratio: 6.0
+    landmark_min: 0.06
+    calm_ratio: 3.0
+    appearance_z: 6.0
+    audio_z: 5.0
+
+identify:
+  voice: true
+  voice_model: checkpoints/media/wespeaker_resnet34_lm.onnx
+  # Ngưỡng cosine SFace (OpenCV khuyến nghị 0,363 cho cặp ảnh đơn; template trung bình nhiều
+  # frame nên cao hơn). Ước lượng ban đầu - chạy calibrate sau khi đã duyệt vài chục speaker.
+  match_high: 0.55
+  match_low: 0.35
+  match_margin: 0.08
+  cluster_threshold: 0.45
+  min_cluster_clips: 3         # cụm nhỏ hơn mà không khớp ai thì để chưa gán
+  face_outlier: 0.35
+  voice_match_low: 0.35        # giọng khác hẳn thì không tự gộp (đưa sang gợi ý)
+  voice_outlier: 0.3
+  photos_per_speaker: 3
+
+parts:
+  speakers_per_gender: 20      # mỗi part: 20 nam + 20 nữ
+  clips_per_speaker: 20        # × 20 clip = 800 clip (v003_model_research.md §10)
+  seed: 42
+  split:                       # [nam, nữ] theo speaker (60 / 15 / 25 %)
+    train: [12, 12]
+    validation: [3, 3]
+    test: [5, 5]

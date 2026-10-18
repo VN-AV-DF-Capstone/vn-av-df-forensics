@@ -1,0 +1,23 @@
+# conda env create -f environments/avhubert.yml
+# Worker không cài package chính: fairseq cũ không dùng chung Transformers 5 của env chính.
+name: vn-avhubert
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - dlib=19.24
+  - pip=23.3.2
+  - pip:
+      - setuptools<70
+      - wheel==0.45.1
+      - Cython==0.29.37
+      - numpy==1.23.5
+      - scipy==1.10.1
+      - scikit-image==0.21.0
+      - opencv-python==4.9.0.80
+      - python-speech-features==0.6
+      - sentencepiece==0.1.99
+      - editdistance==0.6.2
+      - av==12.3.0
+      - imageio-ffmpeg==0.6.0
+      - PyYAML==6.0.2

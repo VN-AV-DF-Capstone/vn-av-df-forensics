@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "vn-av-df-forensics"
+version = "3.0.0"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.24,<3", "av>=12", "opencv-python>=4.8", "scipy>=1.11,<2", "imageio-ffmpeg==0.6.0", "PyYAML>=6"]
+[project.optional-dependencies]
+# generation: Wav2Lip chạy trong Python chính (librosa, numba, tqdm), PhoWhisper (transformers).
+generation = ["torch>=2.6", "transformers>=5,<6", "safetensors>=0.5", "huggingface-hub>=0.34", "librosa>=0.10", "numba", "tqdm", "gdown>=5"]
+training = ["torch>=2.6", "transformers>=5,<6", "safetensors>=0.5", "huggingface-hub>=0.34", "scikit-learn>=1.4", "wandb>=0.19"]
+# demo: giao diện Gradio + biểu đồ (cài cùng generation + training trong notebooks/demo.ipynb).
+demo = ["gradio>=5", "matplotlib>=3.8"]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.8"]
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.pytest.ini_options]
+pythonpath = ["src", "data_pipeline/src"]
+testpaths = ["tests", "data_pipeline/tests"]
+addopts = "-p no:cacheprovider"
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["external", "weights", "datasets", "cache", "runs", "notebooks", "kaggle_outputs"]
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+[tool.ruff.lint.per-file-ignores]
+"generation/*.py" = ["E402"]
+"training/*.py" = ["E402"]
+"src/vn_av_df/generation/wav2lip_worker.py" = ["E402"]
