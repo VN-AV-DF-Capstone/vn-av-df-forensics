@@ -9,21 +9,27 @@ from pathlib import Path
 from _common import main, models_dir, save_wav
 
 REPO = "hynt/F5-TTS-Vietnamese-ViVoice"
-MODEL_CFG = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
 
 
 def load():
+    from importlib.resources import files
+
     import torch
     from f5_tts.infer.utils_infer import load_model, load_vocoder
     from f5_tts.model import DiT
     from huggingface_hub import snapshot_download
+    from omegaconf import OmegaConf
 
     folder = Path(snapshot_download(REPO, cache_dir=str(models_dir("f5_vi"))))
     checkpoint = sorted([*folder.rglob("*.pt"), *folder.rglob("*.safetensors")])[-1]
-    vocab = next(folder.rglob("vocab.txt"))
+    # Repo này không có vocab.txt: danh sách ký tự nằm trong config.json (không phải JSON).
+    vocab = folder / "config.json"
+    # Model train theo F5TTS_Base (text_mask_padding=False, pe_attn_head=1), khác mặc định DiT 1.x.
+    base = files("f5_tts").joinpath("configs/F5TTS_Base.yaml")
+    arch = OmegaConf.to_container(OmegaConf.load(str(base)).model.arch)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = load_model(
-        DiT, MODEL_CFG, str(checkpoint), mel_spec_type="vocos", vocab_file=str(vocab), device=device
+        DiT, arch, str(checkpoint), mel_spec_type="vocos", vocab_file=str(vocab), device=device
     )
     vocoder = load_vocoder(vocoder_name="vocos", is_local=False, device=device)
     return {"model": model, "vocoder": vocoder, "device": device}

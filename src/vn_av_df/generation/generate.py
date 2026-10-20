@@ -547,8 +547,14 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
         for group in groups.values():
             with ThreadPoolExecutor(max_workers=len(gpus)) as pool:
                 futures = [pool.submit(on_free_gpu, job) for job in group]
-                for future in as_completed(futures):
-                    future.result()
+                try:
+                    for future in as_completed(futures):
+                        future.result()
+                except BaseException:
+                    # Không huỷ thì pool vẫn chạy hết job còn lại và nuốt lỗi của chúng.
+                    for future in futures:
+                        future.cancel()
+                    raise
             worker.close_all()
     finally:
         worker.close_all()
