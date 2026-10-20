@@ -292,8 +292,10 @@ def test_generation_finalize_counts_and_labels(world):
 
 
 def test_batches_split_clips_across_sessions(world, tmp_path):
-    """4 đợt phủ đủ clip; phiên voice đợt 1 ở máy A, máy B gộp rồi chỉ lip-sync đợt 1."""
+    """4 đợt phủ đủ clip; phiên voice đợt 1 ở máy A, máy B gộp rồi chỉ lip-sync đợt 1 trên 2 GPU."""
     import shutil
+    import threading
+    import time
 
     from vn_av_df.generation.generate import batch_clips, merge_previous, run_generation
     from vn_av_df.generation.voice.engines import Engine
@@ -323,8 +325,22 @@ def test_batches_split_clips_across_sessions(world, tmp_path):
     synth = {g: fake_synthesize for g in ("g_a", "g_b", "g_c", "g_new")}
     with pytest.raises(RuntimeError, match="record giọng"):
         run_generation(b, "lipsync", synthesizers=synth)  # đợt 2-4 chưa có giọng
-    b["session_batch"] = (1, 4)
-    result = run_generation(b, "lipsync", synthesizers=synth)
+    b["session_batch"], b["generation_gpus"] = (1, 4), [0, 1]
+    guard, busy, clash = threading.Lock(), set(), []
+
+    def one_job_per_gpu(*args, gpu, **kw):
+        with guard:
+            clash.append(gpu in busy)
+            busy.add(gpu)
+        try:
+            time.sleep(0.05)
+            fake_synthesize(*args, **kw)
+        finally:
+            with guard:
+                busy.discard(gpu)
+
+    result = run_generation(b, "lipsync", synthesizers=dict.fromkeys(synth, one_job_per_gpu))
+    assert len(clash) > 2 and not any(clash)
     keys = {j["key"] for j in plan["jobs"] if j["parent"]["clip_id"] in parts[0]}
     records = Path(b["generated_dataset"]) / "records"
     assert result["remaining"] == 0 and {p.stem for p in records.glob("*.json")} == keys

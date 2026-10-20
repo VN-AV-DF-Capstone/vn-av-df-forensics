@@ -43,6 +43,7 @@ class Worker:
         self.command = [str(arg) for arg in command]
         self.tail = collections.deque(maxlen=80)
         self.lines = queue.Queue()
+        self.busy = threading.Lock()  # một yêu cầu một lúc: trả lời không lạc sang luồng khác
         # MPLBACKEND inline của kernel Jupyter làm import matplotlib trong worker lỗi; dùng Agg.
         env = {**(os.environ if env is None else env), "MPLBACKEND": "Agg"}
         self.process = subprocess.Popen(
@@ -94,9 +95,10 @@ class Worker:
         return self.process.poll() is None
 
     def call(self, request, timeout=3600):
-        self.process.stdin.write(json.dumps(request) + "\n")
-        self.process.stdin.flush()
-        return self._wait(DONE, timeout)
+        with self.busy:
+            self.process.stdin.write(json.dumps(request) + "\n")
+            self.process.stdin.flush()
+            return self._wait(DONE, timeout)
 
     def close(self):
         if self.process.poll() is None:

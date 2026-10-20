@@ -6,6 +6,7 @@ record, xoá output dở của job chưa xong. Mọi sample encode cùng một c
 48 kHz), tiếng luôn lấy từ PCM do pipeline dựng, không lấy tiếng generator.
 """
 
+import queue
 import random
 import shutil
 import tempfile
@@ -47,6 +48,17 @@ def skip_reason(exc):
     if text.startswith("Worker failed: "):
         return "generator_error", text.removeprefix("Worker failed: ").splitlines()[0][:200]
     return None
+
+
+def free_ram():
+    """RAM còn trống (Linux); in cùng tiến độ để thấy RAM cạn trước khi kernel chết."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return f", RAM trống {int(line.split()[1]) / 2**20:.1f} GB"
+    except OSError:
+        pass
+    return ""
 
 
 def adapter_for(name):
@@ -495,6 +507,7 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
                     raise RuntimeError(
                         f"{state['streak']} jobs skipped in a row: {reason}"
                     ) from exc
+            print(f"[{phase}] {job['key']} bỏ qua ({reason[0]}): {reason[1]}", flush=True)
             return []
         write_json(records / f"{job['key']}.json", {"rows": rows, **note})
         with ctx.lock:
@@ -508,17 +521,35 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
         print(
             f"[{phase}] {job['key']} {job.get('generator') or job.get('voice')} "
             f"{job['parent']['split']} → {len(rows)} sample | {time.monotonic() - tick:.0f}s, "
-            f"xong {state['done']}/{len(todo)}, còn ~{left / 60:.0f} phút",
+            f"xong {state['done']}/{len(todo)}, còn ~{left / 60:.0f} phút{free_ram()}",
             flush=True,
         )
         return rows
 
-    slots = list(gpus)
+    free = queue.Queue()
+    for gpu in gpus:
+        free.put(gpu)
+
+    def on_free_gpu(job):
+        # Mỗi job đang chạy giữ riêng một GPU, nên hai job không gọi cùng lúc một worker.
+        gpu = free.get()
+        try:
+            return one(job, gpu)
+        finally:
+            free.put(gpu)
+
+    # Chạy hết một hệ giọng / generator rồi tắt worker của nó: mỗi lúc chỉ vài process model
+    # nằm trong RAM (Kaggle T4×2 ~30 GB; giữ mọi hệ trên cả 2 GPU thì hết RAM).
+    groups = {}
+    for job in todo:
+        groups.setdefault(job.get("voice") or job.get("generator"), []).append(job)
     try:
-        with ThreadPoolExecutor(max_workers=len(slots)) as pool:
-            futures = [pool.submit(one, job, slots[i % len(slots)]) for i, job in enumerate(todo)]
-            for future in as_completed(futures):
-                future.result()
+        for group in groups.values():
+            with ThreadPoolExecutor(max_workers=len(gpus)) as pool:
+                futures = [pool.submit(on_free_gpu, job) for job in group]
+                for future in as_completed(futures):
+                    future.result()
+            worker.close_all()
     finally:
         worker.close_all()
         log["sessions"].append(
