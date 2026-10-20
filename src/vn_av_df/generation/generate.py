@@ -543,18 +543,27 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
     groups = {}
     for job in todo:
         groups.setdefault(job.get("voice") or job.get("generator"), []).append(job)
+    failed = {}
     try:
-        for group in groups.values():
-            with ThreadPoolExecutor(max_workers=len(gpus)) as pool:
-                futures = [pool.submit(on_free_gpu, job) for job in group]
-                try:
-                    for future in as_completed(futures):
-                        future.result()
-                except BaseException:
-                    # Không huỷ thì pool vẫn chạy hết job còn lại và nuốt lỗi của chúng.
-                    for future in futures:
-                        future.cancel()
-                    raise
+        for name, group in groups.items():
+            try:
+                with ThreadPoolExecutor(max_workers=len(gpus)) as pool:
+                    futures = [pool.submit(on_free_gpu, job) for job in group]
+                    try:
+                        for future in as_completed(futures):
+                            future.result()
+                    except BaseException:
+                        # Không huỷ thì pool vẫn chạy hết job còn lại và nuốt lỗi của chúng.
+                        for future in futures:
+                            future.cancel()
+                        raise
+            except Exception as exc:
+                # Một hệ lỗi thì dừng hệ đó, các hệ khác vẫn chạy và phiên kết thúc bình thường:
+                # Output của phiên Kaggle lỗi không gắn được vào phiên sau.
+                failed[name] = f"{type(exc).__name__}: {exc}"[:2000]
+                print(
+                    f"[{phase}] {name} DỪNG, job chưa làm để phiên sau: {failed[name]}", flush=True
+                )
             worker.close_all()
     finally:
         worker.close_all()
@@ -575,6 +584,7 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
         "done": state["done"],
         "skipped": state["skipped"],
         "remaining": remaining,
+        "failed": failed,
     }
 
 

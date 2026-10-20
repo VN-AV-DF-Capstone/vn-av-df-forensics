@@ -346,6 +346,21 @@ def test_batches_split_clips_across_sessions(world, tmp_path):
     assert result["remaining"] == 0 and {p.stem for p in records.glob("*.json")} == keys
     assert not any("cell_fallback" in p.read_text(encoding="utf-8") for p in records.glob("*.json"))
 
+    # Một generator lỗi (không phải lỗi bỏ qua được): chỉ nó dừng, generator khác vẫn xong.
+    c = session("c")
+    merge_previous(c, [a["root"]])
+    c["session_batch"] = (1, 4)
+
+    def broken(*args, **kw):
+        raise RuntimeError("boom")
+
+    result = run_generation(c, "lipsync", synthesizers={**synth, "g_a": broken})
+    assert set(result["failed"]) == {"g_a"} and "boom" in result["failed"]["g_a"]
+    done = {p.stem for p in (Path(c["generated_dataset"]) / "records").glob("*.json")}
+    lip = [j for j in plan["jobs"] if j["type"] == "lipsync" and j["key"] in keys]
+    assert {j["key"] for j in lip if j["generator"] != "g_a"} <= done
+    assert not done & {j["key"] for j in lip if j["generator"] == "g_a"}
+
 
 def write_fake_caches(cfg, rows, dim=32):
     rng = np.random.default_rng(0)
