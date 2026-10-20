@@ -278,6 +278,46 @@ def test_generation_finalize_counts_and_labels(world):
     assert set(per_parent.values()) == {11}
 
 
+def test_batches_split_clips_across_sessions(world, tmp_path):
+    """4 đợt phủ đủ clip; phiên voice đợt 1 ở máy A, máy B gộp rồi chỉ lip-sync đợt 1."""
+    import shutil
+
+    from vn_av_df.generation.generate import batch_clips, merge_previous, run_generation
+    from vn_av_df.generation.voice.engines import Engine
+
+    plan = json.loads(Path(world["cfg"]["plan"]).read_text(encoding="utf-8"))
+    parts = [batch_clips(plan, (k, 4)) for k in range(1, 5)]
+    clips = {j["parent"]["clip_id"] for j in plan["jobs"]}
+    assert set().union(*parts) == clips and sum(map(len, parts)) == len(clips)
+    with pytest.raises(ValueError):
+        batch_clips(plan, (5, 4))
+
+    def session(name):
+        root = tmp_path / name
+        root.mkdir()
+        return {
+            **world["cfg"],
+            "root": str(root),
+            "plan": str(root / "plan.json"),
+            "generated_dataset": str(root / "datasets/vn-test-part1"),
+        }
+
+    a, b = session("a"), session("b")
+    shutil.copy2(world["cfg"]["plan"], a["plan"])
+    a["session_batch"] = (1, 4)
+    run_generation(a, "voice", engine=Engine(a, call=fake_call), transcriber=FakeTranscriber())
+    merge_previous(b, [a["root"]])
+    synth = {g: fake_synthesize for g in ("g_a", "g_b", "g_c", "g_new")}
+    with pytest.raises(RuntimeError, match="record giọng"):
+        run_generation(b, "lipsync", synthesizers=synth)  # đợt 2-4 chưa có giọng
+    b["session_batch"] = (1, 4)
+    result = run_generation(b, "lipsync", synthesizers=synth)
+    keys = {j["key"] for j in plan["jobs"] if j["parent"]["clip_id"] in parts[0]}
+    records = Path(b["generated_dataset"]) / "records"
+    assert result["remaining"] == 0 and {p.stem for p in records.glob("*.json")} == keys
+    assert not any("cell_fallback" in p.read_text(encoding="utf-8") for p in records.glob("*.json"))
+
+
 def write_fake_caches(cfg, rows, dim=32):
     rng = np.random.default_rng(0)
     cache = Path(cfg["cache"])

@@ -60,6 +60,8 @@ Danh sách nằm ở `settings.py` (`TRAIN_GENERATORS`, `TEST_ONLY_GENERATORS`, 
 1. **Phiên giọng** (`PHASE = "voice"`, cần GPU). Chạy **trước**, vì cell ⑥ cần track B.
 2. **Các phiên lip-sync** (`PHASE = "lipsync"`, `GENERATORS = [...]`), mỗi phiên vài generator. Phiên sau attach Output của phiên trước vào `PREVIOUS_OUTPUT`; job đã xong được bỏ qua.
 3. Phiên cuối (đủ mọi job) tự finalize → `datasets/vn-av-df-data/<part>/manifest.jsonl`.
+4. **Chia đợt** (tuỳ chọn): `BATCH = (k, n)` (local: `--batch k/n`) chỉ chạy job của đợt k trong n đợt clip cha. Lip-sync dừng báo lỗi nếu job ⑥ của đợt chưa có record giọng.
+5. **Ghép với máy local:** `python generation/03_lipsync.py --generators ... --batch k/n --previous <Output Kaggle>/vn-av-df-forensics` (cũng có ở `02_voice.py`, `04_finalize.py`). Plan lấy từ Kaggle qua `--previous`, không chạy `01_plan.py` ở local: plan ghi đường dẫn của máy nên plan tạo ở hai nơi khác nhau. Mỗi generator chỉ chạy ở một nơi.
 
 Mỗi job ghi `records/<key>.json`. Hết giờ (`TIME_BUDGET_HOURS`) hoặc lỗi thì chạy lại, job dở được xoá và làm lại. Lỗi riêng một clip (không thấy mặt, generator báo lỗi) thì bỏ job đó; bỏ 10 job liên tiếp thì dừng.
 

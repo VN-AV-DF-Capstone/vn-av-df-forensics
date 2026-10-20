@@ -2,9 +2,10 @@
 
 setup [--generators ...] [--encoders]   tải source / weight generator và encoder
 plan                                     kế hoạch sinh cho part sạch đang chọn
-voice                                    phiên giọng (①②③ + track B)
-lipsync [--generators ...]               phiên lip-sync (④⑤⑥) cho các generator chọn
+voice [--batch k/n]                      phiên giọng (①②③ + track B)
+lipsync [--generators ...] [--batch k/n] phiên lip-sync (④⑤⑥) cho các generator chọn
 finalize                                 gom record → manifest
+voice / lipsync / finalize [--previous DIR ...]  gộp output phiên khác (vd. Kaggle) trước khi chạy
 prepare [--encoders ...]                 trích feature (avhubert, mouth, xlsr)
 train [--models ...] [--seeds ...]       train model
 evaluate [--force]                       test một lần
@@ -47,9 +48,12 @@ def main(argv=None):
     p.add_argument("--generators", nargs="*")
     p.add_argument("--encoders", action="store_true")
     sub.add_parser("plan")
-    sub.add_parser("voice")
-    sub.add_parser("lipsync").add_argument("--generators", nargs="*")
-    sub.add_parser("finalize")
+    for name in ("voice", "lipsync", "finalize"):
+        p = sub.add_parser(name)
+        p.add_argument("--previous", nargs="*", default=[])
+        if name != "finalize":
+            p.add_argument("--batch", help="k/n: chỉ chạy đợt k trong n đợt clip")
+    sub.choices["lipsync"].add_argument("--generators", nargs="*")
     sub.add_parser("prepare").add_argument("--encoders", nargs="*")
     p = sub.add_parser("train")
     p.add_argument("--models", nargs="*")
@@ -61,6 +65,12 @@ def main(argv=None):
     from settings import config
 
     cfg = config()
+    if getattr(args, "previous", None):
+        from vn_av_df.generation.generate import merge_previous
+
+        print(merge_previous(cfg, args.previous))
+    if getattr(args, "batch", None):
+        cfg["session_batch"] = tuple(int(x) for x in args.batch.split("/"))
     if args.command == "setup":
         result = setup(cfg, args.generators, args.encoders)
     elif args.command == "plan":

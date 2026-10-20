@@ -167,9 +167,84 @@ def test_generator_commands(tmp_path):
     args, out = lipsync.command(
         cfg, "iplap", repo, tmp_path / "face.mp4", tmp_path / "a.wav", tmp_path
     )
-    assert out.name == "faceresult_N_25_Nl_15.mp4" and "--output_dir" in [str(a) for a in args]
+    assert out.name == "result.avi" and args[1].name == "iplap_worker.py"
     with pytest.raises(FileNotFoundError, match="envs"):
         lipsync.command({"envs": {}, "generation": {}}, "videoretalking", repo, "f", "a", tmp_path)
+
+
+def test_iplap_worker_keeps_result_half(tmp_path):
+    """Upstream giả ghi [sketch | kết quả] rồi mux; worker giữ nửa phải, bỏ mux, dọn thư mục tạm."""
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    import cv2
+
+    from vn_av_df.generation import iplap_worker
+
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "torch.py").write_text("def manual_seed(s):\n    pass\n", encoding="utf-8")
+    (stubs / "torchvision").mkdir()
+    (stubs / "torchvision/__init__.py").write_text("from . import models\n", encoding="utf-8")
+    (stubs / "torchvision/models.py").write_text(
+        "def vgg19(**kw):\n    assert 'pretrained' not in kw\n    return kw\n", encoding="utf-8"
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "inference_single.py").write_text(
+        textwrap.dedent(
+            """
+            import argparse, os, subprocess
+            import cv2, numpy as np, torchvision
+            p = argparse.ArgumentParser()
+            for k in ("--input", "--audio", "--output_dir"):
+                p.add_argument(k)
+            a = p.parse_args()
+            assert os.path.isfile(a.input) and torchvision.models.vgg19(pretrained=True) == {}
+            temp = "tempfile_of_" + a.output_dir.split("/")[-1]
+            os.makedirs(temp)
+            out = cv2.VideoWriter(temp + "/result.avi", cv2.VideoWriter_fourcc(*"DIVX"), 25, (64, 32))
+            for i in range(5):
+                frame = np.zeros((32, 64, 3), np.uint8)
+                frame[:, 32:] = 200
+                out.write(frame)
+            out.release()
+            assert subprocess.call("ffmpeg -i x " + temp + "/result.avi y.mp4", shell=True) == 0
+            """
+        ),
+        encoding="utf-8",
+    )
+    video = tmp_path / "face.mp4"
+    video.write_bytes(b"v")
+    (tmp_path / "audio.wav").write_bytes(b"a")
+    out = tmp_path / "result.avi"
+    env = {**os.environ, "PYTHONPATH": str(stubs)}
+    subprocess.run(
+        [
+            sys.executable,
+            iplap_worker.__file__,
+            "--video",
+            video,
+            "--audio",
+            tmp_path / "audio.wav",
+            "--output",
+            out,
+        ],
+        cwd=repo,
+        env=env,
+        check=True,
+    )
+    stream = cv2.VideoCapture(str(out))
+    frames = []
+    while True:
+        ok, frame = stream.read()
+        if not ok:
+            break
+        frames.append(frame)
+    assert len(frames) == 5 and frames[0].shape == (32, 32, 3) and frames[0].min() > 150
+    assert sorted(p.name for p in repo.iterdir()) == ["inference_single.py"]
 
 
 def test_env_recipes_cover_every_worker():

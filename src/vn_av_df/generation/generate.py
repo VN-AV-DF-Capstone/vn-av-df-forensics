@@ -376,8 +376,21 @@ def run_lipsync(ctx, job, synthesize, gen_info, gpu=None):
     return rows, {}
 
 
+def batch_clips(plan, batch):
+    """Clip cha của đợt k / n (batch = (k, n)): clip theo thứ tự trong plan, cắt n phần liền nhau.
+
+    Thứ tự plan cũng là thứ tự phiên voice chạy, nên đợt đầu có giọng trước.
+    """
+    k, n = batch
+    if not 1 <= k <= n:
+        raise ValueError(f"Batch must be k/n with 1 <= k <= n, got {k}/{n}")
+    clips = list(dict.fromkeys(j["parent"]["clip_id"] for j in plan["jobs"]))
+    return set(clips[(k - 1) * len(clips) // n : k * len(clips) // n])
+
+
 def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None):
-    """phase: "voice" | "lipsync". cfg["session_generators"] giới hạn generator của phiên."""
+    """phase: "voice" | "lipsync". cfg["session_generators"] giới hạn generator của phiên,
+    cfg["session_batch"] = (k, n) giới hạn ở đợt k / n clip cha."""
     plan = read_json(cfg["plan"])
     out = Path(cfg["generated_dataset"])
     out.mkdir(parents=True, exist_ok=True)
@@ -386,6 +399,17 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
     if phase == "lipsync":
         active = set(cfg.get("session_generators") or {j["generator"] for j in jobs})
         jobs = [j for j in jobs if j["generator"] in active]
+    if cfg.get("session_batch"):
+        keep = batch_clips(plan, cfg["session_batch"])
+        jobs = [j for j in jobs if j["parent"]["clip_id"] in keep]
+    if phase == "lipsync":
+        # Thiếu record giọng thì run_lipsync lặng lẽ đổi ⑥ thành ④; bắt chạy / gộp voice trước.
+        waiting = sum(
+            j["cell"] == "both" and not (out / "records" / f"{j['voice_key']}.json").exists()
+            for j in jobs
+        )
+        if waiting:
+            raise RuntimeError(f"{waiting} job ⑥ chưa có record giọng: chạy hoặc gộp voice trước")
     lock = out / "generation.json"
     log = (
         read_json(lock)
@@ -574,6 +598,13 @@ def merge_previous(cfg, sources):
             plan_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(other_plan, plan_path)
         folder = source / out.relative_to(cfg["root"])
+        log = folder / "generation.json"
+        if log.is_file() and (out / "generation.json").exists():
+            # Cùng generator chạy ở hai nơi với setup khác → record lẫn hai phiên bản; dừng trước khi chép.
+            mine, theirs = read_json(out / "generation.json"), read_json(log)
+            for name, info in theirs["provenance"].items():
+                if mine["provenance"].get(name, info) != info:
+                    raise ValueError(f"{name} ran with another setup in {source}")
         for path in sorted(folder.rglob("*")):
             if not path.is_file() or path.name == "generation.json":
                 continue
@@ -585,7 +616,6 @@ def merge_previous(cfg, sources):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
             copied += 1
-        log = folder / "generation.json"
         if log.is_file():
             mine = (
                 read_json(out / "generation.json") if (out / "generation.json").exists() else None

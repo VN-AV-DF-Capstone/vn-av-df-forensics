@@ -164,13 +164,10 @@ def command(cfg, name, repo, face, audio, out_dir):
             *("--video_path", face, "--audio_path", audio, "--video_out_path", out),
         ], out
     if name == "iplap":
-        # Tên output: <tên input bỏ 4 ký tự cuối>result_N_25_Nl_15.mp4 trong output_dir.
-        out = out_dir / "faceresult_N_25_Nl_15.mp4"
-        return [
-            py,
-            *("inference_single.py", "--input", face, "--audio", audio),
-            *("--output_dir", out_dir),
-        ], out
+        # Video upstream là [sketch | kết quả] ghép ngang; worker chỉ giữ nửa kết quả.
+        out = out_dir / "result.avi"
+        worker = Path(__file__).with_name("iplap_worker.py")
+        return [py, worker, "--video", face, "--audio", audio, "--output", out], out
     if name == "diff2lip":
         script = (repo / "scripts/inference_single_video.sh").read_text(encoding="utf-8")
         model = sorted((repo / "checkpoints").rglob("*.pt"))[0]
