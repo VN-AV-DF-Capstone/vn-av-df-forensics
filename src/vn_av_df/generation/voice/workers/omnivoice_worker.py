@@ -7,8 +7,12 @@ def load():
     import os
 
     os.environ.setdefault("HF_HOME", str(models_dir("omnivoice")))
+    import torch
     from omnivoice import OmniVoice
 
+    # Không truyền device_map thì from_pretrained (transformers) để model trên CPU: ~450 s/job.
+    if torch.cuda.is_available():
+        return OmniVoice.from_pretrained("k2-fsa/OmniVoice", device_map="cuda", dtype=torch.float16)
     return OmniVoice.from_pretrained("k2-fsa/OmniVoice")
 
 

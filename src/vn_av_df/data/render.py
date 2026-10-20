@@ -60,7 +60,9 @@ def write_lossless(frames, pcm, output):
         os.replace(tmp / "result.mkv", output)
 
 
-def encode(frames, pcm, output, crf):
+def encode(frames, pcm, output, crf, video_from=None):
+    """video_from: mp4 do encode() tạo từ đúng các frame này → chép luồng hình (x264 cho ra y hệt
+    nếu encode lại), chỉ encode tiếng."""
     import cv2
     from scipy.io import wavfile
 
@@ -68,17 +70,21 @@ def encode(frames, pcm, output, crf):
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output.parent) as tmp:
         tmp = Path(tmp)
-        h, w = frames[0].shape[:2]
-        writer = cv2.VideoWriter(
-            str(tmp / "video.avi"), cv2.VideoWriter_fourcc(*"FFV1"), 25, (w, h)
-        )
-        if not writer.isOpened():
-            raise RuntimeError("Cannot create lossless intermediate")
-        try:
-            for frame in frames:
-                writer.write(frame)
-        finally:
-            writer.release()
+        if video_from is None:
+            source = tmp / "video.avi"
+            video = ["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-crf", str(crf)]
+            video += ["-pix_fmt", "yuv420p"]
+            h, w = frames[0].shape[:2]
+            writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"FFV1"), 25, (w, h))
+            if not writer.isOpened():
+                raise RuntimeError("Cannot create lossless intermediate")
+            try:
+                for frame in frames:
+                    writer.write(frame)
+            finally:
+                writer.release()
+        else:
+            source, video = video_from, ["-c:v", "copy"]
         wavfile.write(
             tmp / "audio.wav", 48000, np.clip(pcm * 32767, -32768, 32767).astype(np.int16)
         )
@@ -89,21 +95,14 @@ def encode(frames, pcm, output, crf):
                 "-v",
                 "error",
                 "-i",
-                tmp / "video.avi",
+                source,
                 "-i",
                 tmp / "audio.wav",
                 "-map",
                 "0:v:0",
                 "-map",
                 "1:a:0",
-                "-vf",
-                "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-                "-c:v",
-                "libx264",
-                "-crf",
-                str(crf),
-                "-pix_fmt",
-                "yuv420p",
+                *video,
                 "-c:a",
                 "aac",
                 "-ar",

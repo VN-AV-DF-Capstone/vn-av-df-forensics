@@ -263,6 +263,19 @@ def test_generation_finalize_counts_and_labels(world):
     ]
     validate_rows(rows, out, verify_media=True)
     assert set(info["cells"]) == {"real", "sham", "voice", "source", "donor", "both"}
+
+    def video_md5(row):
+        path = out / row["video"]
+        return run(
+            [ffmpeg(), "-v", "error", "-i", path, "-map", "0:v", "-c", "copy", "-f", "md5", "-"]
+        )
+
+    # Job voice encode hình một lần, các sample còn lại chép luồng hình của real.
+    voiced = next(r for r in rows if r["variant"] == "voice_full")
+    real = next(
+        r for r in rows if r["sample_id"] == voiced["sample_id"][: -len("voice_full")] + "real"
+    )
+    assert video_md5(voiced) == video_md5(real)
     test_voice = [r for r in rows if r["split"] == "test" and r["cell"] == "voice"]
     assert any(r["variant"] == "voice_inpaint" for r in test_voice)
     assert not any(r["variant"] == "voice_inpaint" for r in rows if r["split"] == "train")

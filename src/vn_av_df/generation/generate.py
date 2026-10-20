@@ -102,10 +102,12 @@ class Context:
             self.clean / row["video"], max_side=self.options["max_side"], sample_rate=48000
         )
 
-    def emit(self, key, variant, frames, pcm, parent, cell, kind, span=None, **extra):
+    def emit(
+        self, key, variant, frames, pcm, parent, cell, kind, span=None, video_from=None, **extra
+    ):
         n = len(frames)
         path = self.out / "clips" / f"{key}_{variant}.mp4"
-        encode(frames, pcm, path, self.options["crf"])
+        encode(frames, pcm, path, self.options["crf"], video_from)
         if abs(probe(path)["duration_s"] - n / 25) > 0.1:
             raise ValueError("Encoded duration differs")
         row = {
@@ -139,8 +141,9 @@ class Context:
         return row
 
 
-def run_voice(ctx, job):
+def run_voice(ctx, job, engine=None):
     """① real, ② sham full/partial, ③ track A (full) / B (partial, ghép) / C (sửa trực tiếp)."""
+    engine = engine or ctx.engine
     parent, key, seed = job["parent"], job["key"], ctx.plan["seed"]
     rng = random.Random(stable_int(f"{seed}:{key}"))
     media = ctx.decode(parent)
@@ -148,6 +151,8 @@ def run_voice(ctx, job):
     n = len(frames)
     samples = n * SPF
     rows = [ctx.emit(key, "real", frames, pcm, parent, "real", "full")]
+    # Mọi sample của job voice cùng hình với real: chép luồng hình, khỏi encode lại.
+    same = ctx.out / rows[0]["video"]
     noise = A.noise_floor(pcm)
     if job.get("sham_donor"):
         donor = ctx.decode(job["sham_donor"])["pcm"][:samples]
@@ -155,7 +160,11 @@ def run_voice(ctx, job):
             raise ValueError("Sham donor shorter than parent")
         extra = {"audio_source_id": job["sham_donor"]["source_id"]}
         extra["parent_ids"] = sorted({parent["source_id"], job["sham_donor"]["source_id"]})
-        rows.append(ctx.emit(key, "sham_full", frames, donor, parent, "sham", "full", **extra))
+        rows.append(
+            ctx.emit(
+                key, "sham_full", frames, donor, parent, "sham", "full", video_from=same, **extra
+            )
+        )
         a, b = random_span(rng, n, ctx.options)
         spliced = A.splice(pcm, donor[a * SPF : b * SPF], a * SPF, b * SPF, noise=noise)
         rows.append(
@@ -168,6 +177,7 @@ def run_voice(ctx, job):
                 "sham",
                 "partial",
                 (a / 25, b / 25),
+                video_from=same,
                 **extra,
             )
         )
@@ -187,7 +197,7 @@ def run_voice(ctx, job):
         method = job["voice"]
         voice = {"voice_method": method, "audio_source_id": parent["source_id"]}
         # Track A: đọc lại cả câu bằng giọng nhân bản → thay toàn bộ tiếng.
-        ctx.engine.tts(method, text_of(words), ref_wav, text_of(ref_words), tmp / "a.wav", tmp)
+        engine.tts(method, text_of(words), ref_wav, text_of(ref_words), tmp / "a.wav", tmp)
         track_a, ratio_a = A.fit_whole(A.read_wav(tmp / "a.wav"), samples, ffmpeg())
         rows.append(
             ctx.emit(
@@ -198,6 +208,7 @@ def run_voice(ctx, job):
                 parent,
                 "voice",
                 "full",
+                video_from=same,
                 **voice,
                 stretch_ratio=round(ratio_a, 3),
                 transcript=text_of(words),
@@ -214,7 +225,7 @@ def run_voice(ctx, job):
         if edit is None:
             return rows, {"voice_skipped": "no editable phrase"}
         p, q = round(edit["span"][0] * 25), round(edit["span"][1] * 25)
-        ctx.engine.tts(method, edit["new"], ref_wav, text_of(ref_words), tmp / "b.wav", tmp)
+        engine.tts(method, edit["new"], ref_wav, text_of(ref_words), tmp / "b.wav", tmp)
         insert, ratio_b = A.time_stretch(
             A.trim_silence(A.read_wav(tmp / "b.wav")), (q - p) * SPF, ffmpeg()
         )
@@ -230,6 +241,7 @@ def run_voice(ctx, job):
                 "voice",
                 "partial",
                 span,
+                video_from=same,
                 **voice,
                 stretch_ratio=round(ratio_b, 3),
                 edit=edit,
@@ -247,7 +259,7 @@ def run_voice(ctx, job):
             before = [w["word"] for w in words if w["end"] <= edit["span"][0] + 1e-6]
             after = [w["word"] for w in words if w["start"] >= edit["span"][1] - 1e-6]
             text = " ".join([*before, edit["new"], *after])
-            ctx.engine.inpaint(job["inpaint"], whole, span, text, tmp / "c.wav")
+            engine.inpaint(job["inpaint"], whole, span, text, tmp / "c.wav")
             painted = A.read_wav(tmp / "c.wav")
             painted = np.pad(painted, (0, max(0, samples - len(painted))))[:samples]
             # Chỉ lấy đoạn đã sửa (vocoder tạo lại cả câu), nối 5 ms để giữ tiếng gốc ngoài đoạn.
@@ -269,6 +281,7 @@ def run_voice(ctx, job):
                     "voice",
                     "partial",
                     span,
+                    video_from=same,
                     voice_method=job["inpaint"],
                     audio_source_id=parent["source_id"],
                     edit=edit,
@@ -437,10 +450,6 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
             from vn_av_df.generation.voice.asr import Transcriber
 
             transcriber = Transcriber(cfg["generation"]["asr_model"], cfg["device"], out / "asr")
-        if engine is None:
-            from vn_av_df.generation.voice.engines import Engine
-
-            engine = Engine(cfg)
     write_json(lock, log)
     ctx = Context(cfg, plan, out, engine, transcriber)
     records = out / "records"
@@ -450,6 +459,12 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
     for leftover in out.glob("tmp*"):
         shutil.rmtree(leftover, ignore_errors=True)
     gpus = list(cfg.get("generation_gpus") or [None])
+    engines = {gpu: engine for gpu in gpus}
+    if phase == "voice" and engine is None:
+        from vn_av_df.generation.voice.engines import Engine
+
+        # Mỗi luồng một GPU: worker giọng nạp model trên GPU của luồng gọi nó.
+        engines = {gpu: Engine(cfg, gpu) for gpu in gpus}
     deadline = cfg.get("generation_deadline")
     began = time.monotonic()
     state = {"done": 0, "skipped": 0, "streak": 0}
@@ -464,7 +479,7 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
         tick = time.monotonic()
         try:
             if phase == "voice":
-                rows, note = run_voice(ctx, job)
+                rows, note = run_voice(ctx, job, engines[gpu])
             else:
                 name = job["generator"]
                 rows, note = run_lipsync(ctx, job, synth[name], infos[name], gpu)
