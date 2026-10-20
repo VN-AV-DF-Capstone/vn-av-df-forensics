@@ -18,6 +18,9 @@ from bootstrap_worker import execute, micromamba, remove_package_cache, write_js
 
 CU111 = "https://download.pytorch.org/whl/torch_stable.html"
 CU121 = "https://download.pytorch.org/whl/cu121"
+# transformers 5.x (kéo theo omnivoice, voxcpm, coqui-tts) tắt PyTorch < 2.6 → lỗi khi import model.
+CU126 = "https://download.pytorch.org/whl/cu126"
+TORCH_28 = ["torch==2.8.0", "torchaudio==2.8.0", "--index-url", CU126]
 
 RECIPES = {
     # VideoReTalking README: Python 3.8, torch 1.9.0+cu111, requirements.txt.
@@ -82,7 +85,7 @@ RECIPES = {
         "python": "3.10",
         "conda": ["ffmpeg"],
         "pip": [
-            ["torch", "torchaudio", "--index-url", CU121],
+            TORCH_28,  # README OmniVoice: torch 2.8.0
             ["git+https://github.com/k2-fsa/OmniVoice.git", "soundfile"],
         ],
         "probe": "from omnivoice import OmniVoice",
@@ -91,14 +94,14 @@ RECIPES = {
     "tts_voxcpm": {
         "python": "3.11",
         "conda": ["ffmpeg"],
-        "pip": [["torch>=2.5", "torchaudio", "--index-url", CU121], ["voxcpm", "soundfile"]],
+        "pip": [TORCH_28, ["voxcpm", "soundfile"]],
         "probe": "from voxcpm import VoxCPM",
     },
     "tts_xtts": {
         "python": "3.10",
         "conda": ["ffmpeg"],
         "pip": [
-            ["torch==2.4.1", "torchaudio==2.4.1", "--index-url", CU121],
+            TORCH_28,
             ["coqui-tts", "huggingface_hub"],
         ],
         "probe": "from TTS.tts.models.xtts import Xtts",
@@ -108,10 +111,20 @@ RECIPES = {
         "conda": ["ffmpeg"],
         "clone": "https://github.com/Plachtaa/seed-vc.git",
         "pip": [
-            ["torch", "torchaudio", "--index-url", CU121],
-            ["-r", "external/seed-vc/requirements.txt"],
+            # requirements.txt upstream mở đầu bằng 3 dòng torch nightly (--index-url áp cho cả
+            # file) rồi mới pin torch==2.4.0: pip không tìm được 2.4.0 trên index nightly. Cài
+            # đúng các pin của file đó, torch lấy từ index ổn định.
+            ["torch==2.4.0", "torchvision==0.19.0", "torchaudio==2.4.0", "--index-url", CU121],
+            [
+                *("accelerate", "scipy==1.13.1", "librosa==0.10.2", "huggingface-hub>=0.28.1"),
+                *("munch==4.0.0", "einops==0.8.0", "descript-audio-codec==1.0.0"),
+                *("gradio==5.23.0", "pydub==0.25.1", "resemblyzer", "jiwer==3.0.3"),
+                *("transformers==4.46.3", "FreeSimpleGUI==5.1.1", "soundfile==0.12.1"),
+                *("sounddevice==0.5.0", "modelscope==1.18.1", "funasr==1.1.5", "numpy==1.26.4"),
+                *("hydra-core==1.3.2", "pyyaml", "python-dotenv"),
+            ],
         ],
-        "probe": "import torch",
+        "probe": "import torch, torchaudio, librosa, munch, transformers.modeling_utils",
     },
 }
 
