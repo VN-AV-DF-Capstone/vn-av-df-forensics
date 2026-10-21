@@ -3,6 +3,7 @@
 Chạy trong môi trường chính (transformers). Kết quả lưu cache theo hash file tiếng.
 """
 
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -25,17 +26,26 @@ class Transcriber:
             chunk_length_s=30,
         )
         self.model = model
+        self.lock = threading.Lock()
 
     def __call__(self, pcm16k, key=None):
         """pcm 16 kHz float → [{"word", "start", "end"}] (giây)."""
         path = self.cache / f"{key}.json" if self.cache and key else None
         if path and path.is_file():
             return read_json(path)["words"]
-        out = self.pipe(
-            {"raw": np.asarray(pcm16k, np.float32), "sampling_rate": 16000},
-            return_timestamps="word",
-            generate_kwargs={"language": "vi", "task": "transcribe"},
-        )
+        import torch
+
+        # Mỗi GPU một luồng job nhưng chỉ một pipeline (trên GPU 0 của process chính): gọi lần
+        # lượt và trả cache sau mỗi lần, không thì cache PyTorch phình và worker giọng cùng GPU 0
+        # hết VRAM (VoxCPM2 trên Kaggle: một process khác giữ 12 GB của GPU 0).
+        with self.lock:
+            out = self.pipe(
+                {"raw": np.asarray(pcm16k, np.float32), "sampling_rate": 16000},
+                return_timestamps="word",
+                generate_kwargs={"language": "vi", "task": "transcribe"},
+            )
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         words = []
         for chunk in out.get("chunks") or []:
             start, end = chunk.get("timestamp") or (None, None)
