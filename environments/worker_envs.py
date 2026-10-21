@@ -29,19 +29,35 @@ RECIPES = {
         "conda": ["ffmpeg", "dlib"],
         "pip": [
             ["torch==1.9.0+cu111", "torchvision==0.10.0+cu111", "-f", CU111],
-            ["-r", "external/videoretalking/requirements.txt"],
+            # requirements.txt upstream trừ dlib==19.24.0: pip build dlib từ source lỗi trên
+            # Kaggle; dùng dlib của conda ở trên.
+            [
+                *("basicsr==1.4.2", "kornia==0.5.1", "face-alignment==1.3.4", "ninja==1.10.2.3"),
+                *("einops==0.4.1", "facexlib==0.2.5", "librosa==0.9.2", "gradio>=3.7.0"),
+                "numpy==1.23.4",
+            ],
         ],
-        "probe": "import torch, cv2, face_alignment",
+        "probe": "import torch, cv2, face_alignment, dlib",
     },
-    # IP-LAP README: Python 3.7.13, torch 1.10.0, torchvision 0.11.0, requirements.txt.
+    # IP-LAP README: Python 3.7.13, torch 1.10.0, torchvision 0.11.0, requirements.txt. PyPI đã gỡ
+    # mediapipe 0.8.11 (cũ nhất còn lại 0.10.5, Python >= 3.8) nên dùng Python 3.8 và pin lại:
+    # mediapipe 0.10.9 (bản cuối không kéo jax), scipy 1.10.1 (1.2.3 không có wheel 3.8),
+    # numba 0.56.4 (bản mới hơn đòi numpy >= 1.22). lws chỉ có source, setup.py import numpy.
     "gen_iplap": {
-        "python": "3.7",
+        "python": "3.8",
         "conda": ["ffmpeg"],
         "pip": [
             ["torch==1.10.0+cu111", "torchvision==0.11.0+cu111", "-f", CU111],
-            ["-r", "external/iplap/requirements.txt"],
+            ["numpy==1.21.6", "wheel"],
+            ["--no-build-isolation", "lws==1.2.7"],
+            [
+                *("typing_extensions==4.3.0", "opencv-contrib-python==4.6.0.66"),
+                *("opencv-python==4.6.0.66", "numpy==1.21.6", "tqdm==4.64.1", "mediapipe==0.10.9"),
+                *("face-alignment==1.3.5", "librosa==0.9.2", "numba==0.56.4", "scipy==1.10.1"),
+                *("lws==1.2.7", "tensorboardX==2.5.1", "piq==0.7.0"),
+            ],
         ],
-        "probe": "import torch, cv2",
+        "probe": "import torch, cv2, lws, librosa, mediapipe, face_alignment",
     },
     # LatentSync: Python 3.10 + requirements.txt (đã pin torch / diffusers của repo).
     "gen_latentsync": {
