@@ -67,9 +67,13 @@ RECIPES = {
         "probe": "import torch, diffusers",
     },
     # Diff2Lip README: Python 3.9, ffmpeg 5.0.1, requirements.txt; guided-diffusion cần mpi4py.
+    # requirements.txt không cài thẳng được: "-e ./guided-diffusion" tính theo thư mục đang đứng,
+    # av 9.2.0 không còn wheel (12.0.0 vẫn hợp write_video của torchvision 0.13), torchaudio không
+    # pin kéo torch 2.x (Diff2Lip không dùng). numpy < 2 cho torch 1.12; librosa 0.9.2 cần
+    # pkg_resources (setuptools < 81). mpi4py + mpich lấy từ conda thay cho mpi4py-mpich.
     "gen_diff2lip": {
         "python": "3.9",
-        "conda": ["ffmpeg=5.0.1", "mpi4py"],
+        "conda": ["ffmpeg=5.0.1", "mpi4py", "mpich"],
         "pip": [
             [
                 "torch==1.12.1",
@@ -77,9 +81,13 @@ RECIPES = {
                 "--extra-index-url",
                 "https://download.pytorch.org/whl/cu113",
             ],
-            ["-r", "external/diff2lip/requirements.txt"],
+            [
+                *("librosa==0.9.2", "opencv-python==4.5.5.64", "opencv-contrib-python==4.6.0.66"),
+                *("tensorboard==2.11.0", "tqdm==4.64.1", "av==12.0.0", "numpy==1.23.5"),
+                *("setuptools<81", "-e", "external/diff2lip/guided-diffusion"),
+            ],
         ],
-        "probe": "import torch, mpi4py",
+        "probe": "import torch, mpi4py, librosa, cv2, av, guided_diffusion",
     },
     # VieNeu v3 (GPU): torch CUDA + transformers==4.57.6 (theo trang PyPI).
     "tts_vieneu": {
