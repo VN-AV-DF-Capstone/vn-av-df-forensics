@@ -172,6 +172,27 @@ def test_generator_commands(tmp_path):
         lipsync.command({"envs": {}, "generation": {}}, "videoretalking", repo, "f", "a", tmp_path)
 
 
+def test_adapter_output_decodes_with_exact_frames(tmp_path):
+    from vn_av_df.common.runtime import run
+    from vn_av_df.data.media import decode
+    from vn_av_df.generation.generate import skip_reason
+
+    produced, audio, out = tmp_path / "result.mp4", tmp_path / "audio.wav", tmp_path / "gen.mkv"
+    lavfi = ("-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i")
+    run([ffmpeg(), *lavfi, "testsrc2=s=96x64:r=25:d=0.32", "-pix_fmt", "yuv420p", produced])
+    run([ffmpeg(), *lavfi, "sine=duration=0.4", "-ar", "16000", "-ac", "1", audio])
+    lipsync.normalize_output(produced, audio, out, 10, 64, 48)
+    assert decode(out)["frames"].shape[:3] == (10, 48, 64)
+    error = RuntimeError(
+        "Worker failed: iplap error: Traceback (most recent call last):\n"
+        '  File "x.py", line 1\nValueError: bad face\n'
+    )
+    assert skip_reason(error) == (
+        "generator_error",
+        "iplap error: Traceback (most recent call last): … ValueError: bad face",
+    )
+
+
 def test_iplap_worker_keeps_result_half(tmp_path):
     """Upstream giả ghi [sketch | kết quả] rồi mux; worker giữ nửa phải, bỏ mux, dọn thư mục tạm."""
     import os

@@ -46,7 +46,9 @@ def skip_reason(exc):
     if face:
         return "face", face
     if text.startswith("Worker failed: "):
-        return "generator_error", text.removeprefix("Worker failed: ").splitlines()[0][:200]
+        lines = [x.strip() for x in text.removeprefix("Worker failed: ").splitlines() if x.strip()]
+        # Dòng đầu là "<generator> error: Traceback ...", lỗi thật nằm ở dòng cuối.
+        return "generator_error", " … ".join(lines[:1] + lines[1:][-1:])[:300]
     return None
 
 
@@ -68,6 +70,12 @@ def retry(record):
 
 def finished(record):
     return record.exists() and not retry(record)
+
+
+def has_finished(out, plan, generator):
+    """Đã có job xong của generator: chỉ khi đó setup (provenance) của nó mới phải giữ nguyên."""
+    keys = (j["key"] for j in plan["jobs"] if j.get("generator") == generator)
+    return any(finished(Path(out) / "records" / f"{key}.json") for key in keys)
 
 
 def adapter_for(name):
@@ -463,7 +471,9 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
             else:
                 adapter = adapter_for(name)
                 synth[name], infos[name] = adapter.synthesize, adapter.provenance(cfg)
-            if log["provenance"].get(name, infos[name]) != infos[name]:
+            if log["provenance"].get(name, infos[name]) != infos[name] and has_finished(
+                out, plan, name
+            ):
                 raise ValueError(f"{name} differs from earlier sessions")
             log["provenance"][name] = infos[name]
     else:
@@ -550,7 +560,11 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
     # Chạy hết một hệ giọng / generator rồi tắt worker của nó: mỗi lúc chỉ vài process model
     # nằm trong RAM (Kaggle T4×2 ~30 GB; giữ mọi hệ trên cả 2 GPU thì hết RAM).
     groups = {}
-    for job in todo:
+    # Lip-sync chạy theo thứ tự GENERATORS của phiên: generator cần thử đặt đầu, lỗi hiện sớm.
+    order = list(cfg.get("session_generators") or [])
+    for job in sorted(
+        todo, key=lambda j: order.index(j["generator"]) if j.get("generator") in order else 0
+    ):
         groups.setdefault(job.get("voice") or job.get("generator"), []).append(job)
     failed = {}
     try:
@@ -672,11 +686,19 @@ def merge_previous(cfg, sources):
             shutil.copy2(other_plan, plan_path)
         folder = source / out.relative_to(cfg["root"])
         log = folder / "generation.json"
+        take = {}
         if log.is_file() and (out / "generation.json").exists():
             # Cùng generator chạy ở hai nơi với setup khác → record lẫn hai phiên bản; dừng trước khi chép.
-            mine, theirs = read_json(out / "generation.json"), read_json(log)
+            # Bên chưa xong job nào của generator đó (vd. phiên lỗi trước khi sửa code) thì nhường.
+            mine, theirs, plan = (
+                read_json(out / "generation.json"),
+                read_json(log),
+                read_json(plan_path),
+            )
             for name, info in theirs["provenance"].items():
-                if mine["provenance"].get(name, info) != info:
+                if mine["provenance"].get(name, info) == info or not has_finished(out, plan, name):
+                    take[name] = info
+                elif has_finished(folder, plan, name):
                     raise ValueError(f"{name} ran with another setup in {source}")
         # Job ở đây bỏ vì lỗi generator nhưng phiên kia đã làm lại xong: lấy mọi file của job đó.
         here = out / "records"
@@ -711,6 +733,6 @@ def merge_previous(cfg, sources):
                 mine["sessions"] = mine["sessions"] + [
                     s for s in theirs["sessions"] if s not in mine["sessions"]
                 ]
-                mine["provenance"].update(theirs["provenance"])
+                mine["provenance"].update(take)
                 write_json(out / "generation.json", mine)
     return {"files_copied": copied}

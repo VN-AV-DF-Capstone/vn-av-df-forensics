@@ -136,14 +136,16 @@ def prepare_inputs(video, audio_source, folder, frames, width, height):
     return face, audio
 
 
-def normalize_output(produced, output, frames, width, height):
-    """Đúng số frame (đệm frame cuối nếu thiếu) và kích thước gốc; ghi FFV1 lossless."""
+def normalize_output(produced, audio, output, frames, width, height):
+    """Đúng số frame (đệm frame cuối nếu thiếu) và kích thước gốc; ghi FFV1 lossless + PCM của
+    audio đầu vào (decode đòi đủ hai luồng; pipeline chỉ lấy hình)."""
     run(
         [
             ffmpeg(),
-            *("-nostdin", "-v", "error", "-y", "-i", produced),
+            *("-nostdin", "-v", "error", "-y", "-i", produced, "-i", audio),
             *("-vf", f"fps=25,scale={width}:{height},tpad=stop_mode=clone:stop={frames}"),
-            *("-frames:v", frames, "-an", "-c:v", "ffv1", output),
+            *("-map", "0:v:0", "-map", "1:a:0", "-frames:v", frames, "-c:v", "ffv1"),
+            *("-c:a", "pcm_s16le", "-ar", "48000", output),
         ]
     )
 
@@ -204,7 +206,7 @@ def make_synthesize(name):
                 raise RuntimeError(f"Worker failed: {name} error: {text[-1500:]}") from exc
             if not produced.is_file():
                 raise RuntimeError(f"Worker failed: {name} produced no video")
-            normalize_output(produced, output, frames, width, height)
+            normalize_output(produced, audio, output, frames, width, height)
 
     return synthesize
 

@@ -354,8 +354,17 @@ def test_batches_split_clips_across_sessions(world, tmp_path):
     def broken(*args, **kw):
         raise RuntimeError("boom")
 
-    result = run_generation(c, "lipsync", synthesizers={**synth, "g_a": broken})
+    seen = []
+
+    def noting(name):
+        return lambda *args, **kw: (seen.append(name), fake_synthesize(*args, **kw))
+
+    c["session_generators"] = order = ["g_new", "g_c", "g_a", "g_b"]
+    result = run_generation(
+        c, "lipsync", synthesizers={**{g: noting(g) for g in synth}, "g_a": broken}
+    )
     assert set(result["failed"]) == {"g_a"} and "boom" in result["failed"]["g_a"]
+    assert list(dict.fromkeys(seen)) == [g for g in order if g in seen] and len(set(seen)) > 1
     done = {p.stem for p in (Path(c["generated_dataset"]) / "records").glob("*.json")}
     lip = [j for j in plan["jobs"] if j["type"] == "lipsync" and j["key"] in keys]
     assert {j["key"] for j in lip if j["generator"] != "g_a"} <= done
@@ -374,6 +383,11 @@ def test_batches_split_clips_across_sessions(world, tmp_path):
         p.stem for p in (Path(d["generated_dataset"]) / "records").glob("*.json")
     }
     assert retried
+    # Setup của g_a đổi sau phiên lỗi (sửa code adapter): chưa xong job nào thì không chặn.
+    log = Path(d["generated_dataset"]) / "generation.json"
+    stale = json.loads(log.read_text(encoding="utf-8"))
+    stale["provenance"]["g_a"] = {"version": "before-fix", "generator": "g_a"}
+    log.write_text(json.dumps(stale), encoding="utf-8")
     merge_previous(e, [d["root"]])
     assert run_generation(e, "lipsync", synthesizers=synth)["remaining"] == 0
     merge_previous(e, [d["root"]])  # bản bỏ của d không đè bản đã làm của e
@@ -386,6 +400,7 @@ def test_batches_split_clips_across_sessions(world, tmp_path):
         )
         assert record == other and "rows" in record
         assert all(sha(mine / row["video"]) == row["sha256"] for row in record["rows"])
+    assert json.loads(log.read_text(encoding="utf-8"))["provenance"]["g_a"]["version"] == "test"
 
 
 def write_fake_caches(cfg, rows, dim=32):
