@@ -32,7 +32,12 @@ def complete(path):
             with zipfile.ZipFile(path) as z:  # Bị cắt cụt thì mất central directory → lỗi.
                 z.namelist()
         elif path.suffix == ".json":
-            json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            # Đổi giữa các phiên: nhật ký phiên, record lỗi generator mà phiên sau làm lại.
+            if path.name == "generation.json" or (
+                isinstance(data, dict) and data.get("kind") == "generator_error"
+            ):
+                return False
     except Exception:
         return False
     return True
