@@ -45,7 +45,13 @@ class Worker:
         self.lines = queue.Queue()
         self.busy = threading.Lock()  # một yêu cầu một lúc: trả lời không lạc sang luồng khác
         # MPLBACKEND inline của kernel Jupyter làm import matplotlib trong worker lỗi; dùng Agg.
-        env = {**(os.environ if env is None else env), "MPLBACKEND": "Agg"}
+        # Windows: stdout dạng pipe mặc định cp1252, print ký tự ngoài bảng mã (vd. 「 trong log
+        # MuseTalk) làm hỏng job; đọc bên dưới là UTF-8 nên worker cũng ghi UTF-8.
+        env = {
+            **(os.environ if env is None else env),
+            "MPLBACKEND": "Agg",
+            "PYTHONIOENCODING": "utf-8",
+        }
         self.process = subprocess.Popen(
             self.command,
             cwd=cwd,

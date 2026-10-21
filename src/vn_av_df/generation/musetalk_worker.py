@@ -75,7 +75,13 @@ def synthesize(models, request):
     torch.manual_seed(int(cfg.get("seed", 42)))
     n, w, h = request["frames"], request["width"], request["height"]
     source = decode(request["video"], max_side=max(w, h), sample_rate=48000)
-    donor = decode(request["audio_video"], max_side=max(w, h), sample_rate=48000)
+    if Path(request["audio_video"]).suffix == ".wav":
+        # Ô ⑥ lái bằng track giọng AI (chỉ có tiếng, 48 kHz), không phải video donor.
+        from vn_av_df.generation.voice.audio import read_wav
+
+        donor = {"pcm": read_wav(request["audio_video"])}
+    else:
+        donor = decode(request["audio_video"], max_side=max(w, h), sample_rate=48000)
     if len(source["frames"]) != n or len(donor["pcm"]) < n * 1920:
         raise ValueError("MuseTalk source/donor timeline differs from plan")
     with tempfile.TemporaryDirectory(dir=Path(request["output"]).parent) as folder:

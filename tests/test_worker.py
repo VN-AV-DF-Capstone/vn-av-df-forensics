@@ -14,6 +14,7 @@ loaded = {{"model": "nạp một lần"}}
 
 def handle(request):
     print("\\r 50%|#####     |", end="", flush=True)
+    print("Total frame:「150」", flush=True)  # log MuseTalk, ngoài bảng mã cp1252
     if request["x"] == "fail":
         raise ValueError("bad input")
     if request["x"] == "crash":
@@ -35,6 +36,8 @@ def command(tmp_path):
 def test_worker_reuses_process_reports_failures_and_restarts(command, monkeypatch):
     # Kernel Jupyter đặt backend inline; worker ở môi trường riêng phải nhận Agg.
     monkeypatch.setenv("MPLBACKEND", "module://matplotlib_inline.backend_inline")
+    # Như stdout dạng pipe trên Windows.
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
     try:
         first = worker.get("fake", lambda: worker.Worker(command, startup_timeout=60))
         a = first.call({"x": 1}, timeout=60)
