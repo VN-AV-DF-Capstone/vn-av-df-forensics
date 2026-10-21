@@ -9,7 +9,8 @@ def load():
     os.environ.setdefault("HF_HOME", str(models_dir("voxcpm2")))
     from voxcpm import VoxCPM
 
-    return VoxCPM.from_pretrained("openbmb/VoxCPM2", load_denoiser=False)
+    # torch.compile (mặc định bật) hỏng khi trace einops trên Kaggle (torch 2.8): chạy eager.
+    return VoxCPM.from_pretrained("openbmb/VoxCPM2", load_denoiser=False, optimize=False)
 
 
 def handle(model, request):
