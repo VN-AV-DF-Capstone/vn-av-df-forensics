@@ -39,4 +39,14 @@ def main(load, handle):
     from vn_av_df.worker import serve
 
     state = load()
-    serve(lambda request: handle(state, request))
+
+    def run(request):
+        try:
+            return handle(state, request)
+        finally:
+            # Hai worker cùng một GPU (vd. VoxCPM2 + F5 sửa giọng ở test): worker rảnh trả cache.
+            torch = sys.modules.get("torch")
+            if torch is not None and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    serve(run)
