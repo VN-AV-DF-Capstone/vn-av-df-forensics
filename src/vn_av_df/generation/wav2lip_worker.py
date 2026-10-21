@@ -168,14 +168,20 @@ def main():
 
     inference.face_detection.FaceAlignment = cached_detector
 
+    home = os.getcwd()
+
     def run_one(request=None):
         # Tên file cố định trong cwd (face.avi, audio.wav, generated.mkv) như bản một lần.
         if request:
             os.chdir(request["cwd"])
-        Path("temp").mkdir(exist_ok=False)
-        inference.main()
-        if not Path("generated.mkv").is_file():
-            raise RuntimeError("Wav2Lip did not produce generated.mkv")
+        try:
+            Path("temp").mkdir(exist_ok=False)
+            inference.main()
+            if not Path("generated.mkv").is_file():
+                raise RuntimeError("Wav2Lip did not produce generated.mkv")
+        finally:
+            # Windows không xoá được thư mục đang là cwd của một process (WinError 32).
+            os.chdir(home)
 
     if args.serve:
         from vn_av_df.worker import serve
