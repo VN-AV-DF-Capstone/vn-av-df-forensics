@@ -361,6 +361,32 @@ def test_batches_split_clips_across_sessions(world, tmp_path):
     assert {j["key"] for j in lip if j["generator"] != "g_a"} <= done
     assert not done & {j["key"] for j in lip if j["generator"] == "g_a"}
 
+    # Job bỏ vì lỗi generator được phiên sau làm lại; gộp hai phiên theo thứ tự nào cũng lấy bản xong.
+    d, e = session("d"), session("e")
+    merge_previous(d, [a["root"]])
+    d["session_batch"] = e["session_batch"] = (1, 4)
+
+    def flaky(*args, **kw):
+        raise RuntimeError("Worker failed: CUDA out of memory")
+
+    run_generation(d, "lipsync", synthesizers={**synth, "g_a": flaky})
+    retried = {j["key"] for j in lip if j["generator"] == "g_a"} & {
+        p.stem for p in (Path(d["generated_dataset"]) / "records").glob("*.json")
+    }
+    assert retried
+    merge_previous(e, [d["root"]])
+    assert run_generation(e, "lipsync", synthesizers=synth)["remaining"] == 0
+    merge_previous(e, [d["root"]])  # bản bỏ của d không đè bản đã làm của e
+    merge_previous(d, [e["root"]])
+    for key in retried:
+        mine, theirs = (Path(s["generated_dataset"]) for s in (d, e))
+        record, other = (
+            json.loads((side / "records" / f"{key}.json").read_text(encoding="utf-8"))
+            for side in (mine, theirs)
+        )
+        assert record == other and "rows" in record
+        assert all(sha(mine / row["video"]) == row["sha256"] for row in record["rows"])
+
 
 def write_fake_caches(cfg, rows, dim=32):
     rng = np.random.default_rng(0)

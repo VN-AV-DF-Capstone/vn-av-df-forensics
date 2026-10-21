@@ -61,6 +61,15 @@ def free_ram():
     return ""
 
 
+def retry(record):
+    """Record bỏ vì lỗi generator (vd. lỗi code đã sửa): phiên sau làm lại job đó."""
+    return read_json(record).get("kind") == "generator_error"
+
+
+def finished(record):
+    return record.exists() and not retry(record)
+
+
 def adapter_for(name):
     if name == "wav2lip_gan":
         from vn_av_df.generation import wav2lip
@@ -430,7 +439,7 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
     if phase == "lipsync":
         # Thiếu record giọng thì run_lipsync lặng lẽ đổi ⑥ thành ④; bắt chạy / gộp voice trước.
         waiting = sum(
-            j["cell"] == "both" and not (out / "records" / f"{j['voice_key']}.json").exists()
+            j["cell"] == "both" and not finished(out / "records" / f"{j['voice_key']}.json")
             for j in jobs
         )
         if waiting:
@@ -466,7 +475,7 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
     ctx = Context(cfg, plan, out, engine, transcriber)
     records = out / "records"
     records.mkdir(exist_ok=True)
-    todo = [j for j in jobs if not (records / f"{j['key']}.json").exists()]
+    todo = [j for j in jobs if not finished(records / f"{j['key']}.json")]
     print(f"{phase}: {len(jobs)} job, còn {len(todo)}", flush=True)
     for leftover in out.glob("tmp*"):
         shutil.rmtree(leftover, ignore_errors=True)
@@ -560,7 +569,9 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
             except Exception as exc:
                 # Một hệ lỗi thì dừng hệ đó, các hệ khác vẫn chạy và phiên kết thúc bình thường:
                 # Output của phiên Kaggle lỗi không gắn được vào phiên sau.
-                failed[name] = f"{type(exc).__name__}: {exc}"[:2000]
+                text = f"{type(exc).__name__}: {exc}"
+                # Giữ cả dòng cuối traceback: log upstream ở đầu dễ chiếm hết chỗ.
+                failed[name] = text if len(text) <= 2000 else f"{text[:300]}\n...\n{text[-1700:]}"
                 print(
                     f"[{phase}] {name} DỪNG, job chưa làm để phiên sau: {failed[name]}", flush=True
                 )
@@ -578,7 +589,7 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
             }
         )
         write_json(lock, log)
-    remaining = sum(not (records / f"{j['key']}.json").exists() for j in jobs)
+    remaining = sum(not finished(records / f"{j['key']}.json") for j in jobs)
     return {
         "phase": phase,
         "done": state["done"],
@@ -667,12 +678,23 @@ def merge_previous(cfg, sources):
             for name, info in theirs["provenance"].items():
                 if mine["provenance"].get(name, info) != info:
                     raise ValueError(f"{name} ran with another setup in {source}")
+        # Job ở đây bỏ vì lỗi generator nhưng phiên kia đã làm lại xong: lấy mọi file của job đó.
+        here = out / "records"
+        redone = {
+            p.stem
+            for p in (folder / "records").glob("*.json")
+            if (here / p.name).exists() and retry(here / p.name) and not retry(p)
+        }
         for path in sorted(folder.rglob("*")):
             if not path.is_file() or path.name == "generation.json":
                 continue
             target = out / path.relative_to(folder)
-            if target.exists():
-                if path.parent.name == "records" and read_json(target) != read_json(path):
+            if target.exists() and path.stem.split("_")[0] not in redone:
+                if (
+                    path.parent.name == "records"
+                    and not retry(path)
+                    and read_json(target) != read_json(path)
+                ):
                     raise ValueError(f"Conflicting record {path.name}")
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)

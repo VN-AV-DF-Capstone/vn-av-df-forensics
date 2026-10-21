@@ -4,11 +4,29 @@ mode "tts": nhân bản giọng (ref_audio + ref_text). mode "inpaint": sửa tr
 audio theo văn bản mới của cả câu (cách làm của speech_edit.py trong repo F5-TTS).
 """
 
+import os
 from pathlib import Path
 
 from _common import main, models_dir, save_wav
 
 REPO = "hynt/F5-TTS-Vietnamese-ViVoice"
+
+
+def ema_only(checkpoint):
+    """model_last.pt là checkpoint train 5,4 GB (kèm optimizer): tách trọng số EMA (~1,35 GB,
+    như bản chạy local) ra safetensors một lần, worker không phải nạp cả optimizer lên GPU."""
+    import torch
+    from safetensors.torch import save_file
+
+    out = models_dir("f5_vi") / f"{checkpoint.stem}_ema.safetensors"
+    if not out.is_file():
+        state = torch.load(checkpoint, map_location="cpu", weights_only=True, mmap=True)
+        ema = {k: v.contiguous() for k, v in state["ema_model_state_dict"].items()}
+        # Hai GPU có thể tách cùng lúc: mỗi process ghi file riêng rồi thay vào.
+        part = out.with_name(f"{out.name}.{os.getpid()}.part")
+        save_file(ema, str(part))
+        os.replace(part, out)
+    return out
 
 
 def load():
@@ -22,6 +40,8 @@ def load():
 
     folder = Path(snapshot_download(REPO, cache_dir=str(models_dir("f5_vi"))))
     checkpoint = sorted([*folder.rglob("*.pt"), *folder.rglob("*.safetensors")])[-1]
+    if checkpoint.suffix == ".pt":
+        checkpoint = ema_only(checkpoint)
     # Repo này không có vocab.txt: danh sách ký tự nằm trong config.json (không phải JSON).
     vocab = folder / "config.json"
     # Model train theo F5TTS_Base (text_mask_padding=False, pe_attn_head=1), khác mặc định DiT 1.x.

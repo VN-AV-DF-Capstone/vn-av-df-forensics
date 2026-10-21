@@ -4,6 +4,7 @@ Gọi inference.py của repo (đường dẫn: biến VNAV_SEEDVC_REPO) cho t�
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,7 +40,8 @@ def handle(repo, request):
             raise RuntimeError("Seed-VC produced no wav")
         out = Path(request["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(produced[-1], out)
+        # Thư mục tạm ở /tmp, output ở ổ khác (Kaggle): os.replace báo Errno 18.
+        shutil.move(produced[-1], out)
     return {"out": str(out)}
 
 
