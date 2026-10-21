@@ -24,7 +24,7 @@ def handle(repo, request):
     if request["mode"] != "vc":
         raise ValueError(f"Unsupported mode {request['mode']}")
     with tempfile.TemporaryDirectory() as folder:
-        subprocess.run(
+        done = subprocess.run(
             [
                 sys.executable,
                 "inference.py",
@@ -33,8 +33,13 @@ def handle(repo, request):
                 *("--length-adjust", "1.0", "--inference-cfg-rate", "0.7"),
             ],
             cwd=repo,
-            check=True,
+            capture_output=True,
+            text=True,
         )
+        if done.returncode:
+            # Log job chỉ giữ dòng lỗi đầu: báo dòng cuối của upstream (vd. CUDA OOM), không phải lệnh.
+            last = (done.stderr.strip() or done.stdout.strip() or "?").splitlines()[-1]
+            raise RuntimeError(f"Seed-VC inference.py exit {done.returncode}: {last}")
         produced = sorted(Path(folder).glob("*.wav"), key=lambda p: p.stat().st_mtime)
         if not produced:
             raise RuntimeError("Seed-VC produced no wav")
