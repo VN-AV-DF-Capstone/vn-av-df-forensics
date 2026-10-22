@@ -291,7 +291,7 @@ def test_generation_finalize_counts_and_labels(world):
     assert set(per_parent.values()) == {11}
 
 
-def test_batches_split_clips_across_sessions(world, tmp_path):
+def test_batches_split_clips_across_sessions(world, tmp_path, monkeypatch):
     """4 đợt phủ đủ clip; phiên voice đợt 1 ở máy A, máy B gộp rồi chỉ lip-sync đợt 1 trên 2 GPU."""
     import shutil
     import threading
@@ -401,6 +401,20 @@ def test_batches_split_clips_across_sessions(world, tmp_path):
         assert record == other and "rows" in record
         assert all(sha(mine / row["video"]) == row["sha256"] for row in record["rows"])
     assert json.loads(log.read_text(encoding="utf-8"))["provenance"]["g_a"]["version"] == "test"
+
+    # Setup khác của generator đã có job xong thì dừng, trừ adapter cũ ghi trong REDO: làm lại.
+    from vn_av_df.generation import generate
+
+    log = Path(e["generated_dataset"]) / "generation.json"
+    old = json.loads(log.read_text(encoding="utf-8"))
+    old["provenance"]["g_b"] = {"adapter_sha256": "old", "generator": "g_b"}
+    log.write_text(json.dumps(old), encoding="utf-8")
+    with pytest.raises(ValueError, match="g_b differs"):
+        run_generation(e, "lipsync", synthesizers=synth)
+    monkeypatch.setattr(generate, "REDO", {"g_b": "old"})
+    seen.clear()
+    result = run_generation(e, "lipsync", synthesizers={g: noting(g) for g in synth})
+    assert result["remaining"] == 0 and result["done"] > 0 and set(seen) == {"g_b"}
 
 
 def write_fake_caches(cfg, rows, dim=32):

@@ -151,10 +151,11 @@ def test_generator_commands(tmp_path):
     (repo / "checkpoints").mkdir()
     (repo / "checkpoints/model.pt").write_bytes(b"x")
     (repo / "scripts/inference_single_video.sh").write_text(
-        'video_path="X"\naudio_path="Y"\nout_path="Z"\nmodel_path="M"\npython generate.py $video_path\n',
+        'video_path="X"\naudio_path="Y"\nout_path="Z"\nmodel_path="M"\npython generate.py $GEN_FLAGS\n',
         encoding="utf-8",
     )
-    cfg = {"envs": {"gen_diff2lip": "/env/python", "gen_iplap": "/env/py37"}, "generation": {}}
+    envs = ("gen_diff2lip", "gen_iplap", "gen_vrt", "gen_latentsync")
+    cfg = {"envs": dict.fromkeys(envs, "/env/python"), "generation": {}}
     args, out = lipsync.command(
         cfg, "diff2lip", repo, tmp_path / "face.mp4", tmp_path / "a.wav", tmp_path
     )
@@ -163,7 +164,13 @@ def test_generator_commands(tmp_path):
         args[0] == "bash"
         and f'video_path="{tmp_path / "face.mp4"}"' in script
         and "model.pt" in script
+        and f"--sample_path={tmp_path / 'd2l_gen'}" in script
     )
+    # Hai GPU chạy song song: thư mục tạm của upstream nằm riêng trong thư mục job.
+    args, _ = lipsync.command(cfg, "videoretalking", repo, "f", "a", tmp_path)
+    assert args[-3:] == ["--re_preprocess", "--tmp_dir", tmp_path.name]
+    args, _ = lipsync.command(cfg, "latentsync_1_5", repo, "f", "a", tmp_path)
+    assert args[-2:] == ["--temp_dir", tmp_path / "temp"]
     args, out = lipsync.command(
         cfg, "iplap", repo, tmp_path / "face.mp4", tmp_path / "a.wav", tmp_path
     )

@@ -38,6 +38,11 @@ DRIVE_FOLDERS = {
     "videoretalking": "18rhjMpxK8LVVxf7PI6XwOidt8Vouv_H0",
     "diff2lip": "1UMiHAhVf5M_CKzjVQFC5jkz-IXAAnFo5",
 }
+# Adapter ở commit 45ef7a7 đã chạy trên Kaggle. IP-LAP chạy y hệt bản này nên giữ hash đó (record
+# cũ vẫn dùng được); VideoRetalking khi đó dùng chung cache temp/ giữa hai GPU nên record cũ làm lại.
+# shortcut: hash IP-LAP cố định, sửa phần iplap của file này thì bỏ nhánh iplap trong provenance().
+OLD_ADAPTER = "9974d74899f69dd62bf86d04077e5e8de17136730a13f4c15590616bf875eb77"
+REDO = {"videoretalking": OLD_ADAPTER}
 
 
 def repo_dir(cfg, name):
@@ -111,7 +116,7 @@ def provenance(cfg, name):
         "generator": name,
         "version": read_json(lock)["commit"] if lock.is_file() else "unknown",
         "checkpoint_sha256": sha(files[0]),
-        "adapter_sha256": sha(__file__),
+        "adapter_sha256": OLD_ADAPTER if name == "iplap" else sha(__file__),
     }
 
 
@@ -152,9 +157,14 @@ def normalize_output(produced, audio, output, frames, width, height):
 
 def command(cfg, name, repo, face, audio, out_dir):
     py = python_of(cfg, name)
+    # Job chạy song song trên hai GPU: thư mục tạm upstream phải riêng từng job.
     if name == "videoretalking":
+        # Upstream cache theo tên file (luôn là face.mp4) và ghi temp/<tmp_dir>/result.mp4.
         out = out_dir / "result.mp4"
-        return [py, "inference.py", "--face", face, "--audio", audio, "--outfile", out], out
+        return [
+            *(py, "inference.py", "--face", face, "--audio", audio, "--outfile", out),
+            *("--re_preprocess", "--tmp_dir", out_dir.name),
+        ], out
     if name == "latentsync_1_5":
         out = out_dir / "result.mp4"
         config = cfg["generation"].get("latentsync_config", "configs/unet/stage2.yaml")
@@ -164,6 +174,7 @@ def command(cfg, name, repo, face, audio, out_dir):
             *("--inference_ckpt_path", "checkpoints/latentsync_unet.pt"),
             *("--inference_steps", "20", "--guidance_scale", "1.5", "--enable_deepcache"),
             *("--video_path", face, "--audio_path", audio, "--video_out_path", out),
+            *("--temp_dir", out_dir / "temp"),
         ], out
     if name == "iplap":
         # Video upstream là [sketch | kết quả] ghép ngang; worker chỉ giữ nửa kết quả.
@@ -177,6 +188,8 @@ def command(cfg, name, repo, face, audio, out_dir):
         values = {"video_path": face, "audio_path": audio, "out_path": out, "model_path": model}
         for key, value in values.items():
             script = re.sub(rf"(?m)^{key}=.*$", lambda _, k=key, v=value: f'{k}="{v}"', script)
+        # Mặc định d2l_gen/temp/<tên video> trong repo, xoá cả temp/ sau mỗi bước.
+        script = script.replace("$GEN_FLAGS", f"$GEN_FLAGS --sample_path={out_dir / 'd2l_gen'}")
         runner = out_dir / "run_diff2lip.sh"
         runner.write_text(script, encoding="utf-8")
         return ["bash", runner], out
@@ -204,6 +217,8 @@ def make_synthesize(name):
                 if re.search(r"face not detected|no face|face detect", text, re.I):
                     raise RuntimeError(f"Worker failed: Face not detected ({name})") from exc
                 raise RuntimeError(f"Worker failed: {name} error: {text[-1500:]}") from exc
+            finally:
+                shutil.rmtree(repo / "temp" / folder.name, ignore_errors=True)  # --tmp_dir của VRT
             if not produced.is_file():
                 raise RuntimeError(f"Worker failed: {name} produced no video")
             normalize_output(produced, audio, output, frames, width, height)

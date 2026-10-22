@@ -23,6 +23,7 @@ from vn_av_df.common.runtime import fingerprint, read_json, sha, write_json
 from vn_av_df.data.media import decode, ffmpeg, probe
 from vn_av_df.data.render import encode
 from vn_av_df.generation.cells import labels
+from vn_av_df.generation.lipsync import REDO
 from vn_av_df.generation.plan import stable_int
 from vn_av_df.generation.voice import audio as A
 from vn_av_df.generation.voice.asr import text_of
@@ -471,10 +472,15 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
             else:
                 adapter = adapter_for(name)
                 synth[name], infos[name] = adapter.synthesize, adapter.provenance(cfg)
-            if log["provenance"].get(name, infos[name]) != infos[name] and has_finished(
-                out, plan, name
-            ):
-                raise ValueError(f"{name} differs from earlier sessions")
+            old = log["provenance"].get(name, infos[name])
+            if old != infos[name] and has_finished(out, plan, name):
+                if name not in REDO or old.get("adapter_sha256") != REDO[name]:
+                    raise ValueError(f"{name} differs from earlier sessions")
+                # Adapter cũ có lỗi: job đã xong của generator thành job lỗi, phiên này làm lại.
+                for job in plan["jobs"]:
+                    record = out / "records" / f"{job['key']}.json"
+                    if job.get("generator") == name and finished(record):
+                        write_json(record, {"skipped": "adapter cũ lỗi", "kind": "generator_error"})
             log["provenance"][name] = infos[name]
     else:
         if transcriber is None:
