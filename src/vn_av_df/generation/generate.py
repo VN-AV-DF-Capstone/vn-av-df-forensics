@@ -48,8 +48,8 @@ def skip_reason(exc):
         return "face", face
     if text.startswith("Worker failed: "):
         lines = [x.strip() for x in text.removeprefix("Worker failed: ").splitlines() if x.strip()]
-        # Dòng đầu là "<generator> error: Traceback ...", lỗi thật nằm ở dòng cuối.
-        return "generator_error", " … ".join(lines[:1] + lines[1:][-1:])[:300]
+        # Dòng đầu là "<generator> error: <đầu log>", lỗi thật nằm ở dòng cuối: cắt dòng đầu.
+        return "generator_error", " … ".join([lines[0][:100], *lines[1:][-1:]])[:300]
     return None
 
 
@@ -576,8 +576,11 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
     try:
         for name, group in groups.items():
             try:
+                # Job đầu chạy một mình: lần đầu generator tự tải model phụ (vd. insightface của
+                # LatentSync), hai GPU cùng tải thì đụng thư mục.
+                on_free_gpu(group[0])
                 with ThreadPoolExecutor(max_workers=len(gpus)) as pool:
-                    futures = [pool.submit(on_free_gpu, job) for job in group]
+                    futures = [pool.submit(on_free_gpu, job) for job in group[1:]]
                     try:
                         for future in as_completed(futures):
                             future.result()

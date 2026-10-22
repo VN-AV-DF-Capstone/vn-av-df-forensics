@@ -326,21 +326,31 @@ def test_batches_split_clips_across_sessions(world, tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="record giọng"):
         run_generation(b, "lipsync", synthesizers=synth)  # đợt 2-4 chưa có giọng
     b["session_batch"], b["generation_gpus"] = (1, 4), [0, 1]
-    guard, busy, clash = threading.Lock(), set(), []
+    guard, busy, clash, events = threading.Lock(), set(), [], []
 
-    def one_job_per_gpu(*args, gpu, **kw):
-        with guard:
-            clash.append(gpu in busy)
-            busy.add(gpu)
-        try:
-            time.sleep(0.05)
-            fake_synthesize(*args, **kw)
-        finally:
+    def one_job_per_gpu(name):
+        def synthesize(*args, gpu, **kw):
             with guard:
-                busy.discard(gpu)
+                clash.append(gpu in busy)
+                busy.add(gpu)
+                events.append((name, "start", len(busy)))
+            try:
+                time.sleep(0.05)
+                fake_synthesize(*args, **kw)
+            finally:
+                with guard:
+                    busy.discard(gpu)
+                    events.append((name, "end", len(busy)))
 
-    result = run_generation(b, "lipsync", synthesizers=dict.fromkeys(synth, one_job_per_gpu))
+        return synthesize
+
+    result = run_generation(b, "lipsync", synthesizers={g: one_job_per_gpu(g) for g in synth})
     assert len(clash) > 2 and not any(clash)
+    # Job đầu mỗi generator chạy một mình, các job sau song song trên 2 GPU.
+    for g in {e[0] for e in events}:
+        mine = [e[1] for e in events if e[0] == g]
+        assert mine[:2] == ["start", "end"]
+    assert max(e[2] for e in events) == 2
     keys = {j["key"] for j in plan["jobs"] if j["parent"]["clip_id"] in parts[0]}
     records = Path(b["generated_dataset"]) / "records"
     assert result["remaining"] == 0 and {p.stem for p in records.glob("*.json")} == keys

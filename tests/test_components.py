@@ -198,6 +198,10 @@ def test_adapter_output_decodes_with_exact_frames(tmp_path):
         "generator_error",
         "iplap error: Traceback (most recent call last): … ValueError: bad face",
     )
+    warning = "diff2lip error: " + "x" * 400 + "\nNameError: real cause\n"
+    assert skip_reason(RuntimeError(f"Worker failed: {warning}"))[1].endswith(
+        "NameError: real cause"
+    )
 
 
 def test_iplap_worker_keeps_result_half(tmp_path):
