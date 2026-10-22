@@ -426,6 +426,25 @@ def test_batches_split_clips_across_sessions(world, tmp_path, monkeypatch):
     result = run_generation(e, "lipsync", synthesizers={g: noting(g) for g in synth})
     assert result["remaining"] == 0 and result["done"] > 0 and set(seen) == {"g_b"}
 
+    # Cả một người không thấy mặt (IP-LAP/mediapipe): bỏ hẳn từng job, không dừng generator.
+    f = session("f")
+    merge_previous(f, [a["root"]])
+    f["session_batch"] = (1, 4)
+    faceless = [j["key"] for j in lip if j["generator"] == "g_a"]
+    assert faceless
+    monkeypatch.setattr(generate, "MAX_SKIP_STREAK", len(faceless))
+
+    def no_face(*args, **kw):
+        raise RuntimeError("Worker failed: g_a error: raise NotImplementedError  # not detect face")
+
+    result = run_generation(f, "lipsync", synthesizers={**synth, "g_a": no_face})
+    assert "g_a" not in result["failed"] and result["remaining"] == 0
+    records = Path(f["generated_dataset"]) / "records"
+    kinds = {
+        json.loads((records / f"{k}.json").read_text(encoding="utf-8"))["kind"] for k in faceless
+    }
+    assert kinds == {"face"}
+
 
 def write_fake_caches(cfg, rows, dim=32):
     rng = np.random.default_rng(0)

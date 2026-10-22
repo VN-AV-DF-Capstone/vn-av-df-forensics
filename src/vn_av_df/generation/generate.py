@@ -31,8 +31,17 @@ from vn_av_df.generation.voice.edit import choose_edit
 
 SPF = 1920  # mẫu 48 kHz mỗi frame 25 Hz
 # Lỗi generator không thấy mặt ở một số frame (bước cắt chỉ kiểm mặt ở vài điểm lấy mẫu).
-FACE_ERRORS = ("Face not detected", "Missing MuseTalk face", "Invalid face bbox")
-# Bỏ liên tiếp chừng này job thì dừng: lỗi hệ thống (hết VRAM, worker hỏng), không phải clip khó.
+# IP-LAP: mediapipe trượt một frame là raise "# not detect face"; VideoRetalking: GPEN không
+# thấy mặt ở một frame thì mask_sharp chưa gán.
+FACE_ERRORS = (
+    "Face not detected",
+    "Missing MuseTalk face",
+    "Invalid face bbox",
+    "not detect face",
+    "'mask_sharp'",
+)
+# Lỗi generator chừng này job liền nhau thì dừng: lỗi hệ thống (hết VRAM, worker hỏng), không phải
+# clip khó. Không thấy mặt thường cả một người (plan xếp job theo người) nên cho dài gấp ba.
 MAX_SKIP_STREAK = 10
 
 
@@ -504,7 +513,7 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
         engines = {gpu: Engine(cfg, gpu) for gpu in gpus}
     deadline = cfg.get("generation_deadline")
     began = time.monotonic()
-    state = {"done": 0, "skipped": 0, "streak": 0}
+    state = {"done": 0, "skipped": 0, "streak": 0, "errors": 0}
     timing = Counter()
     count = Counter()
 
@@ -528,7 +537,8 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
             with ctx.lock:
                 state["skipped"] += 1
                 state["streak"] += 1
-                if state["streak"] >= MAX_SKIP_STREAK:
+                state["errors"] += reason[0] != "face"
+                if state["errors"] >= MAX_SKIP_STREAK or state["streak"] >= 3 * MAX_SKIP_STREAK:
                     raise RuntimeError(
                         f"{state['streak']} jobs skipped in a row: {reason}"
                     ) from exc
@@ -537,7 +547,7 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
         write_json(records / f"{job['key']}.json", {"rows": rows, **note})
         with ctx.lock:
             state["done"] += 1
-            state["streak"] = 0
+            state["streak"] = state["errors"] = 0
             label = job.get("generator", job.get("voice"))
             timing[label] += time.monotonic() - tick
             count[label] += 1
@@ -575,6 +585,7 @@ def run_generation(cfg, phase, engine=None, transcriber=None, synthesizers=None)
     failed = {}
     try:
         for name, group in groups.items():
+            state["streak"] = state["errors"] = 0  # chuỗi lỗi của generator trước không tính
             try:
                 # Job đầu chạy một mình: lần đầu generator tự tải model phụ (vd. insightface của
                 # LatentSync), hai GPU cùng tải thì đụng thư mục.

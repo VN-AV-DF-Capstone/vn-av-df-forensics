@@ -202,6 +202,11 @@ def test_adapter_output_decodes_with_exact_frames(tmp_path):
     assert skip_reason(RuntimeError(f"Worker failed: {warning}"))[1].endswith(
         "NameError: real cause"
     )
+    for tail in (
+        "raise NotImplementedError  # not detect face\nNotImplementedError",
+        "UnboundLocalError: local variable 'mask_sharp' referenced before assignment",
+    ):
+        assert skip_reason(RuntimeError(f"Worker failed: x error: {tail}"))[0] == "face"
 
 
 def test_iplap_worker_keeps_result_half(tmp_path):
