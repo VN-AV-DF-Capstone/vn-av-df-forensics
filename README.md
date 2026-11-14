@@ -8,7 +8,7 @@
 | v003 | `v003` | the benchmark rebuilt from scratch; detectors M1, M2 and baselines on part 1 |
 | v004 | `v004` | measured mismatch labels, the M3 lip–audio–head detector, all three parts (closed 7 November 2026): [docs/v004_report.md](docs/v004_report.md) |
 | v005 | `v005` | **M3-R**, a detector trained on real re-compressed video (480p, 360p) with paired clean ↔ re-encoded consistency, and a resolution gate (closed 11 November 2026, seed 42): **[docs/v005_report.md](docs/v005_report.md)** |
-| **v006** | `main` | the v005 roster retrained on seed 43 with extra validation points inside the first three epochs, so the learning curves start from chance level (in progress) |
+| **v006** | `main` | the v005 roster retrained on seed 43 with extra validation points inside the first three epochs, so the learning curves start from chance level; report in [docs/v006_report.md](docs/v006_report.md) |
 
 ## Benchmark design
 
@@ -62,7 +62,7 @@ How to run each step is described in **[PIPELINE.md](PIPELINE.md)** (written in 
 
 ## Status (v005, closed 11 November 2026)
 
-v006 (in progress) retrains the same roster on seed 43; the numbers below are the closed v005 round. Trained and tested once on Kaggle (3 parts, 31 unseen test speakers, 7,368 clips, seed 42); full report in [docs/v005_report.md](docs/v005_report.md).
+The numbers below are the closed v005 round (seed 42). v006 (14 November 2026) retrained the same roster on seed 43; see the replication note at the end of this section. Trained and tested once on Kaggle (3 parts, 31 unseen test speakers, 7,368 clips, seed 42); full report in [docs/v005_report.md](docs/v005_report.md).
 
 | AI? AUC (test) | clean 720p | 480p | 360p |
 |---|---|---|---|
@@ -79,6 +79,12 @@ v006 (in progress) retrains the same roster on seed 43; the numbers below are th
 - M3-R does not treat misaligned real audio (sham, delayed audio) as AI.
 - Unseen voices remain the weakest case: VoxCPM2 0.905, F5 inpainting 0.911.
 - Not run in this round: R4 (clean-only training), R5 (quality branch), and the VP9 / processed-real evaluation variants.
+- **Seed 43 replication (v006, [docs/v006_report.md](docs/v006_report.md)).**
+  - M3-R AI? AUC is 0.971 / 0.960 / 0.907, and the gates R1, R2, R2b and R3 pass again.
+  - Per-model AUCs differ by at most 0.009 between the two seeds.
+  - The consistency-loss gain does not replicate: R6 is −0.001 [−0.004; +0.002].
+  - The audio non-inferiority gate R8 misses by 0.00004: the CI lower bound is −0.01004.
+  - Dense validation learning curves: [docs/figures/v006/c04b_dynamics.png](docs/figures/v006/c04b_dynamics.png).
 
 ## Ethics and usage limits
 

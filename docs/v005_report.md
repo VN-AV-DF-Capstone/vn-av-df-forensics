@@ -19,6 +19,8 @@ Evidence marks:
 
 Numbers without a mark are ● on the v005 test set (3 parts, 31 unseen speakers, 7,368 clips, seed 42).
 
+> **Update (v006, 14 November 2026).** The roster was retrained with seed 43; see [`v006_report.md`](v006_report.md). The main results (R1, R2, R2b, R3) replicate. R6 (+0.004 here) does not: it is −0.001 with seed 43. R8 fails its −0.01 margin by 0.00004 with seed 43.
+
 ---
 
 ## 0. Summary

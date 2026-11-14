@@ -1,0 +1,66 @@
+[
+  {
+    "model": "avh_align_plus_seed43",
+    "checkpoint": "c51236937c3a0c9fa248e3fbd325af6966e723723601bb85742f02cdcd8ac78b",
+    "dataset": "e80527c8f0aad4853f1485eaf724a4701abc2e5c3d40b9028d5c7f6cc719a7a6",
+    "time": "2026-11-14 05:16:38",
+    "session": "train-test-20261114-0458",
+    "test_use": 1
+  },
+  {
+    "model": "avh_align_seed43",
+    "checkpoint": "f7f132ac91b6c2f8e70fcb7e9990fab9bcb1a30380e97d1031a67ce905ce137d",
+    "dataset": "e80527c8f0aad4853f1485eaf724a4701abc2e5c3d40b9028d5c7f6cc719a7a6",
+    "time": "2026-11-14 05:22:50",
+    "session": "train-test-20261114-0458",
+    "test_use": 1
+  },
+  {
+    "model": "avh_align_sup_seed43",
+    "checkpoint": "18b7f58d7140f13287a2d7ef29926bb038058ba5a6950a068e1bbb61cf6be15f",
+    "dataset": "e80527c8f0aad4853f1485eaf724a4701abc2e5c3d40b9028d5c7f6cc719a7a6",
+    "time": "2026-11-14 05:29:01",
+    "session": "train-test-20261114-0458",
+    "test_use": 1
+  },
+  {
+    "model": "lipinc_v2_seed43",
+    "checkpoint": "f583bc039fccd6e0e9bfda2c321eea17e0fd6e5f6ddac2ec2b100642f70f4db2",
+    "dataset": "e80527c8f0aad4853f1485eaf724a4701abc2e5c3d40b9028d5c7f6cc719a7a6",
+    "time": "2026-11-14 05:34:10",
+    "session": "train-test-20261114-0458",
+    "test_use": 1
+  },
+  {
+    "model": "speechforensics_seed43",
+    "checkpoint": "56b529469d392813b03d9261637c4aba5d806d868568afd92c340d4bf0d85825",
+    "dataset": "e80527c8f0aad4853f1485eaf724a4701abc2e5c3d40b9028d5c7f6cc719a7a6",
+    "time": "2026-11-14 05:40:26",
+    "session": "train-test-20261114-0458",
+    "test_use": 1
+  },
+  {
+    "model": "trihead_v5_no_pair_seed43",
+    "checkpoint": "04fa08ec961c19f1025061021aab0c286d922a53a5c1309fb1ce614c8720ca37",
+    "dataset": "e80527c8f0aad4853f1485eaf724a4701abc2e5c3d40b9028d5c7f6cc719a7a6",
+    "time": "2026-11-14 06:00:46",
+    "session": "train-test-20261114-0458",
+    "test_use": 1
+  },
+  {
+    "model": "trihead_v5_seed43",
+    "checkpoint": "c1160368c56dc4c3aeb934b53fc6396c2521c7c4180b368e67f83748131e0c71",
+    "dataset": "e80527c8f0aad4853f1485eaf724a4701abc2e5c3d40b9028d5c7f6cc719a7a6",
+    "time": "2026-11-14 06:20:48",
+    "session": "train-test-20261114-0458",
+    "test_use": 1
+  },
+  {
+    "model": "xlsr_frozen_seed43",
+    "checkpoint": "cfa94d3e88f4ff17c6d4608afc68be5666f840bdbf240348f7a36f1ae3bff10c",
+    "dataset": "e80527c8f0aad4853f1485eaf724a4701abc2e5c3d40b9028d5c7f6cc719a7a6",
+    "time": "2026-11-14 06:28:24",
+    "session": "train-test-20261114-0458",
+    "test_use": 1
+  }
+]
